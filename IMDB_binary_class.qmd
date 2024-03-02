@@ -23,7 +23,7 @@ c(c(train_data, train_labels), c(test_data, test_labels)) %<-% imdb
 
 -   Note: If you get an error about the SSL certificate failing, you can likely fix the issue by running the `install Certficate.command` file in the python application folder. More info [here](https://bugs.python.org/issue28150)
 
--   The label lists ositive reviews are 1 and negative reviews are 0
+-   The label lists positive reviews are 1 and negative reviews are 0
 
 When loading the data, we used `%<-%` which is the multi-assignment operator from the `zeallot` package.
 
@@ -85,5 +85,230 @@ y_train <- as.numeric(train_labels)
 y_test <- as.numeric(test_labels)
 ```
 
-```{}
+#### Building the network
+
+Since the input data is vectors and the labels are scalars (1s and zeros) we can use a simple stack of fully connected (dense) layers with `relu` activations: `layer_dense(units = 16, activation = "relu"`
+
+```{r}
+model <- keras_model_sequential() %>%
+	layer_dense(units = 16, activation = "relu", input_shape = c(10000)) %>%
+	layer_dense(units = 16, activation = "relu") %>%
+	layer_dense(units = 1, activation = "sigmoid")
 ```
+
+#### Configuring the optimizer
+
+```{r}
+model %>% compile(
+	optimizer = "rmsprop",
+	loss = "binary_crossentropy",
+	metrics = c("accuracy")
+)
+```
+
+#### Validation Set
+
+```{r}
+val_indices <- 1:10000
+
+x_val <- x_train[val_indices,]
+partial_x_train <- x_train[-val_indices,]
+
+y_val <- y_train[val_indices]
+partial_y_train <- y_train[-val_indices]
+```
+
+#### Fit the model
+
+```{r}
+history <- model %>% fit(
+  partial_x_train,
+  partial_y_train,
+  epochs = 20,
+  batch_size = 512,
+  validation_data = list(x_val, y_val)
+)
+```
+
+```{r}
+plot(history)
+```
+
+#### Retrain model with 4 epochs
+
+```{r}
+model <- keras_model_sequential() %>%
+  layer_dense(units = 16, activation = "relu", input_shape = c(10000)) %>%
+  layer_dense(units = 16, activation = "relu") %>%
+  layer_dense(units = 1, activation = "sigmoid")
+
+model %>% compile(
+  optimizer = "rmsprop",
+  loss = "binary_crossentropy",
+  metrics = c("accuracy")
+)
+
+model %>% fit(x_train, y_train, epochs = 4, batch_size = 512)
+results <- model %>% evaluate(x_test, y_test)
+
+```
+
+-   The model had an accuracy of \~89% with two hidden layers and 16 units.
+
+#### Using trained network to generate predictions on new data
+
+We can generate the likelihood of reviews being positive by using `predict` :
+
+```{r}
+model %>% predict(x_test[1:10,])
+```
+
+#### Adjust number of hidden layers
+
+What happens if we just use 1 hidden layer?
+
+```{r}
+model2 <- keras_model_sequential() %>%
+  layer_dense(units = 16, activation = "relu", input_shape = c(10000)) %>%
+  layer_dense(units = 1, activation = "sigmoid")
+
+model2 %>% compile(
+  optimizer = "rmsprop",
+  loss = "binary_crossentropy",
+  metrics = c("accuracy")
+)
+
+history2 <- model2 %>% fit(
+  partial_x_train,
+  partial_y_train,
+  epochs = 20,
+  batch_size = 512,
+  validation_data = list(x_val, y_val)
+)
+```
+
+-   Slightly higher accuracy 0.893 vs 0.888, which is not significant.
+
+What if we use 3 hidden layers?
+
+```{r}
+model_3layer <- keras_model_sequential() %>%
+  layer_dense(units = 16, activation = "relu", input_shape = c(10000)) %>%
+  layer_dense(units = 16, activation = "relu") %>%
+  layer_dense(units = 16, activation = "relu") %>%
+  layer_dense(units = 1, activation = "sigmoid")
+
+model_3layer %>% compile(
+  optimizer = "rmsprop",
+  loss = "binary_crossentropy",
+  metrics = c("accuracy")
+)
+
+history_3layer <- model_3layer %>% fit(
+  partial_x_train,
+  partial_y_train,
+  epochs = 20,
+  batch_size = 512,
+  validation_data = list(x_val, y_val))
+```
+
+-   Adding one more hidden layer (3) decreases the accuracy slightly, but not by a significant amount (0.881 vs 0.888)
+
+#### Adjust number of hidden units
+
+##### 32 hidden units:
+
+```{r}
+model_32unit <- keras_model_sequential() %>%
+  layer_dense(units = 32, activation = "relu", input_shape = c(10000)) %>%
+  layer_dense(units = 32, activation = "relu") %>%
+  layer_dense(units = 1, activation = "sigmoid")
+
+model_32unit %>% compile(
+  optimizer = "rmsprop",
+  loss = "binary_crossentropy",
+  metrics = c("accuracy")
+)
+
+history_32unit <- model_32unit %>% fit(
+  partial_x_train,
+  partial_y_train,
+  epochs = 20,
+  batch_size = 512,
+  validation_data = list(x_val, y_val))
+```
+
+-   Increasing the hidden units to 32 decreases the accuracy from 0.888 to 0.885, which is not significant.
+
+##### 64 hidden units:
+
+```{r}
+model_64unit <- keras_model_sequential() %>%
+  layer_dense(units = 64, activation = "relu", input_shape = c(10000)) %>%
+  layer_dense(units = 64, activation = "relu") %>%
+  layer_dense(units = 64, activation = "relu") %>%
+  layer_dense(units = 1, activation = "sigmoid")
+
+model_64unit %>% compile(
+  optimizer = "rmsprop",
+  loss = "binary_crossentropy",
+  metrics = c("accuracy")
+)
+
+history_64unit <- model_64unit %>% fit(
+  partial_x_train,
+  partial_y_train,
+  epochs = 20,
+  batch_size = 512,
+  validation_data = list(x_val, y_val))
+```
+
+-   Roughly the same decrease as 32 hidden units (0.888 vs 0.885)
+
+#### Using MSE loss function instead of binary cross-entropy
+
+```{r}
+model_mse <- keras_model_sequential() %>%
+  layer_dense(units = 16, activation = "relu", input_shape = c(10000)) %>%
+  layer_dense(units = 16, activation = "relu") %>%
+  layer_dense(units = 1, activation = "sigmoid")
+
+model_mse %>% compile(
+  optimizer = "rmsprop",
+  loss = "mse",
+  metrics = c("accuracy")
+)
+
+history_mse <- model_mse %>% fit(
+  partial_x_train,
+  partial_y_train,
+  epochs = 20,
+  batch_size = 512,
+  validation_data = list(x_val, y_val))
+```
+
+-   Changing the loss function to mse had a very very small effect on the accuracy and can be considered the same.
+
+#### Using tanh activation instead of relu
+
+```{r}
+model_tanh <- keras_model_sequential() %>%
+  layer_dense(units = 16, activation = "tanh", input_shape = c(10000)) %>%
+  layer_dense(units = 16, activation = "tanh") %>%
+  layer_dense(units = 1, activation = "sigmoid")
+
+model_tanh %>% compile(
+  optimizer = "rmsprop",
+  loss = "binary_crossentropy",
+  metrics = c("accuracy")
+)
+
+history_tahn <- model_tanh %>% fit(
+  partial_x_train,
+  partial_y_train,
+  epochs = 20,
+  batch_size = 512,
+  validation_data = list(x_val, y_val))
+```
+
+-   Changing the activation from `relu` to `tanh` had no real impact on the accuracy on the validation data set. The results were essentially the same.
