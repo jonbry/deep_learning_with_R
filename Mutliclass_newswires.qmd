@@ -1,0 +1,191 @@
+---
+title: "Reuters newswires multi-class classification"
+format: html
+editor: visual
+---
+
+## Reuters newswires multi-class classification (topic)
+
+#### Packages
+
+```{r}
+library(keras)
+```
+
+#### Load Reuters data set
+
+```{r}
+reuters <- dataset_reuters(num_words = 10000)
+c(c(train_data, train_labels), c(test_data, test_labels)) %<-% reuters
+```
+
+-   There are 8982 samples/observations in `train_data` and 2246 samples in `test_data`
+
+-   Each sample is a list of integers (word indices)
+
+#### Decoding newswires back to text
+
+If we want to convert the the integers back to text, we can use the following code:
+
+```{r, eval = FALSE}
+# Convert first sample back to words
+word_index <- dataset_reuters_word_index()
+reverse_word_index <- names(word_index)
+names(reverse_word_index) <- word_index
+decode_newswire <- sapply(train_data[[1]], function(index){
+  word <- if (index >= 3){
+    reverse_word_index[[as.character(index-3)]]
+  }
+  if (!is.null(word)){
+    word
+  } else {
+    "?"
+  }
+})
+```
+
+#### Preparing the data
+
+We first need to encode/vectorize the data
+
+```{r}
+vectorize_sequences <- function(sequences, dimension = 10000){
+  results <- matrix(0, nrow = length(sequences), ncol = dimension)
+  for (i in 1:length(sequences)){
+    results[i, sequences[[i]]] <- 1
+  }
+  return(results)
+}
+
+x_train <- vectorize_sequences(train_data)
+x_test <- vectorize_sequences(test_data)
+```
+
+There are two ways to vectorize the labels:
+
+-   Cast the label list as an integer tensor
+
+-   One-hot encoding
+
+One-hot, or [categorical encoding]{.underline} is a widely used format for categorical data. In this case, one-hot consists of embedding each label as an all-zero vector with a 1 in the pace of the label index.
+
+##### Example: One-shot encoding
+
+```{r, eval = FALSE}
+to_one_hot <- function(labels, dimension = 46){
+  results <- matrix(0, nrow = length(labels), ncol = dimension)
+  for (in in 1:length(label)){
+    results[i, labels[[i]] + 1] <- 1
+  }
+  return(results)
+}
+
+one_hot_train_labels <- to_one_hot(train_labels)
+one_hot_test_labels <- to_one_hot(test_labels)
+```
+
+This one-hot encoding can also be done with Keras' built-in function:
+
+```{r}
+one_hot_train_labels <- to_categorical(train_labels)
+one_hot_test_labels <- to_categorical(test_labels)
+```
+
+#### Building the network
+
+Using 64 unit layers:
+
+```{r}
+# Model Definition
+model <- keras_model_sequential() %>%
+  layer_dense(units = 64,
+              activation = "relu",
+              input_shape = c(10000)) %>%
+  layer_dense(units = 64,
+              activation = "relu") %>%
+  # Using softmax to output probabilty dist
+  layer_dense(units = 46,
+              activation = "softmax")
+
+# Compile the model
+model %>% 
+  compile(optimizer = "rmsprop",
+          loss = "categorical_crossentropy",
+          metrics = c("accuracy"))
+
+```
+
+-   Using `categorical_crossentropy` to measure the difference in the distribution between the network's output and the true distribution of the labels.
+
+### Validating the approach
+
+To validate the model produced by the training data, we'll set aside 1000 samples for the validation set.
+
+```{r}
+val_indices <- 1:1000
+
+x_val <- x_train[val_indices, ]
+partial_x_train <- x_train[-val_indices, ]
+
+y_val <- one_hot_train_labels[val_indices, ]
+partial_y_train <- one_hot_train_labels[-val_indices, ]
+```
+
+#### Train the model
+
+We'll start by training the network for 20 epochs
+
+```{r}
+history <- model %>%
+  fit(partial_x_train,
+      partial_y_train,
+      epochs = 20,
+      batch_size = 512,
+      validation_data = list(x_val, y_val))
+```
+
+```{r}
+max(history$metrics$val_accuracy)
+which.max(history$metrics$val_accuracy)
+```
+
+```{r}
+plot(history)
+```
+
+-   We see overfitting starting around epoch 8-9, even though the highest accuracy for the validation set is 11. Let's see how well we do for a model with just 9 epochs
+
+#### Retraining for 9 epochs
+
+```{r}
+model_9epoch <- keras_model_sequential() %>% 
+  layer_dense(units = 64,
+              activation = "relu",
+              input_shape = c(10000)) %>% 
+  layer_dense(units = 64, 
+              activation = "relu") %>%
+  layer_dense(units = 46, 
+                activation = "softmax") 
+
+model_9epoch %>%
+  compile(optimizer = "rmsprop",
+           loss = "categorical_crossentropy",
+           metrics = c("accuracy")) 
+
+history_9epoch <- model_9epoch %>% 
+  fit(partial_x_train, 
+      partial_y_train, 
+      epochs = 9,
+      batch_size = 512, 
+      validation_data = list(x_val, y_val)) 
+
+results_9epoch <- model_9epoch %>% evaluate(x_test, one_hot_test_labels)
+```
+
+```{r}
+results_9epoch
+```
+
+-   With 9 epochs, we reach an accuracy of 0.78, which is better than random chance for a binary classifier (0.50) and much better than random classifier for a multi-class (\~0.18)
+
+    -   Got the 0.18 by taking a random sample and seeing how they scored
