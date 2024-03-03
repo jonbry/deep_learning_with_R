@@ -189,3 +189,166 @@ results_9epoch
 -   With 9 epochs, we reach an accuracy of 0.78, which is better than random chance for a binary classifier (0.50) and much better than random classifier for a multi-class (\~0.18)
 
     -   Got the 0.18 by taking a random sample and seeing how they scored
+
+#### Generating predictions on new data
+
+Let's verify that the `predict` method of the model instance returns a probability distribution over all 46 topics. We want to generate topic predictions for all of the test data:
+
+```{r}
+prediction <- model %>% predict(x_test)
+
+# Check to make sure each entry in preidctions is a vector of length 46
+dim(prediction)
+
+# Make sure the coefficients in the vector add up to 1
+sum(prediction[1, ])
+
+# The largest entry is the predicted class, which for the first sample is:
+which.max(prediction[1, ])
+
+```
+
+#### The importance of sufficiently large intermediate layers
+
+Since the final outputs are 46-dimensional, we should avoid have layers with less than 46 hidden units. We can see the impact of the information bottleneck by changing the middle layer to have only 4 hidden units
+
+```{r}
+model_small_layer <- keras_model_sequential() %>% 
+  layer_dense(units = 64,
+              activation = "relu",
+              input_shape = c(10000)) %>%
+  layer_dense(units = 4,
+              activation = "relu") %>%
+  layer_dense(units = 46,
+              activation = "softmax") 
+
+model_small_layer %>% 
+  compile(optimizer = "rmsprop",
+          loss = "categorical_crossentropy",
+          metrics = c("accuracy") ) 
+
+model_small_layer %>% 
+  fit(partial_x_train,
+      partial_y_train,
+      epochs = 20,
+      batch_size = 128,
+      validation_data = list(x_val, y_val))
+```
+
+-   The information bottleneck (loss due to few hidden units in comparison to the final dimensions) causes the accuracy to go down to 71%.
+
+    -   The drop is due to network trying to compress a lot of information (information to recover the separation hyperplanes of 46 classes) into an intermediate space that has too few dimensions.
+
+    -   The network can squeeze most of the information, into these 8D representations, but not all.
+
+#### Impact on accuracy when increasing/decreasing hidden units
+
+What happens if we decrease all the hidden units to 32?
+
+```{r}
+model_32unit <- keras_model_sequential() %>% 
+  layer_dense(units = 32,
+              activation = "relu",
+              input_shape = c(10000)) %>%
+  layer_dense(units = 32,
+              activation = "relu") %>%
+  layer_dense(units = 46,
+              activation = "softmax") 
+
+model_32unit %>% 
+  compile(optimizer = "rmsprop",
+          loss = "categorical_crossentropy",
+          metrics = c("accuracy") ) 
+
+model_32unit %>% 
+  fit(partial_x_train,
+      partial_y_train,
+      epochs = 20,
+      batch_size = 128,
+      validation_data = list(x_val, y_val))
+```
+
+-   When we decrease the units to 32 we only see a slight drop in the accuracy (0.81 vs 0.82)
+
+What happens when if we increase the hidden units to 128?
+
+```{r}
+model_128unit <- keras_model_sequential() %>% 
+  layer_dense(units = 128,
+              activation = "relu",
+              input_shape = c(10000)) %>%
+  layer_dense(units = 128,
+              activation = "relu") %>%
+  layer_dense(units = 46,
+              activation = "softmax") 
+
+model_128unit %>% 
+  compile(optimizer = "rmsprop",
+          loss = "categorical_crossentropy",
+          metrics = c("accuracy") ) 
+
+model_128unit %>% 
+  fit(partial_x_train,
+      partial_y_train,
+      epochs = 20,
+      batch_size = 128,
+      validation_data = list(x_val, y_val))
+```
+
+-   There was no advantage to doubling the number of hidden units to 128 (0.82, 0.82)
+
+#### Changing the number of layers
+
+How does the accuracy change if we remove the intermediate layer?
+
+```{r}
+model_2layer <- keras_model_sequential() %>% 
+  layer_dense(units = 64,
+              activation = "relu",
+              input_shape = c(10000)) %>%
+  layer_dense(units = 46,
+              activation = "softmax") 
+
+model_2layer %>% 
+  compile(optimizer = "rmsprop",
+          loss = "categorical_crossentropy",
+          metrics = c("accuracy") ) 
+
+model_2layer %>% 
+  fit(partial_x_train,
+      partial_y_train,
+      epochs = 20,
+      batch_size = 128,
+      validation_data = list(x_val, y_val))
+```
+
+-   We actually get better results (accuracy) with only two layers (0.833 vs 0.82)
+
+What if we increase the number of hidden layers to 3?
+
+```{r}
+model_3layer <- keras_model_sequential() %>% 
+  layer_dense(units = 64,
+              activation = "relu",
+              input_shape = c(10000)) %>%
+  layer_dense(units = 64,
+              activation = "relu") %>%
+  layer_dense(units = 64,
+              activation = "relu") %>%
+  layer_dense(units = 46,
+              activation = "softmax") 
+
+model_3layer %>% 
+  compile(optimizer = "rmsprop",
+          loss = "categorical_crossentropy",
+          metrics = c("accuracy") ) 
+
+model_3layer %>% 
+  fit(partial_x_train,
+      partial_y_train,
+      epochs = 20,
+      batch_size = 128,
+      validation_data = list(x_val, y_val))
+```
+
+-   We see a slight decrease in accuracy (0.81 vs 0.82) that is not really significant but we did more work to get worse results.
