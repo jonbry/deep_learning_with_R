@@ -1,0 +1,176 @@
+---
+title: "housing_prices_regression"
+format: html
+editor: visual
+---
+
+## Boston housing prices regression
+
+The goal of this project is to predict the median price of homes in a given Boston suburb in the 1970s, given data points about the area (i.e. crime rate, property tax, etc). This dataset is rather small, with only 506 samples, split 404 for training and 102 for test. Each feature of the data set will have a different scale as well.
+
+#### Packages
+
+```{r}
+library(keras)
+library(ggplot2) 
+```
+
+#### Load the housing dataset
+
+```{r}
+dataset <- dataset_boston_housing()
+c(c(train_data, train_targets), c(test_data, test_targets)) %<-% dataset
+```
+
+Quick look at the data:
+
+```{r}
+str(train_data)
+str(test_data)
+```
+
+-   The training set has 404 samples and the test set has 102, each of which has 13 features.
+
+```{r}
+str(train_targets)
+```
+
+-   The targets are median values of the homes, in thousands of dollars. Note: These have not been adjusted for inflation.
+
+#### Preparing the data
+
+Since the features of the dataset all have different ranges, it's best to do feature-wise normalization using `scale()`:
+
+```{r}
+# Calculate the mean and standard deviation
+mean <- apply(train_data, 2, mean)
+std <- apply(train_data, 2, sd)
+
+# Scale the training and test data
+train_data <- scale(train_data, center = mean, scale = std)
+test_data <- scale(test_data, center = mean, scale = std)
+```
+
+-   Note: We are using the mean and standard deviation of the training data on the test data. It is always a best practice to compute quantities on the training data rather then the test data.
+
+#### Building the network
+
+Since we have so few samples, its best to use a small network with two hidden layers (each with 64 units). Overfitting becomes a bigger issue when we have smaller training sets and using a smaller network is one way to combat it.
+
+For this problem we're going to instantiate the same model multiple times, so its best to use a function to construct it:
+
+```{r}
+# Function for creating a model
+build_model <- function(){
+  model <- keras_model_sequential() %>%
+    layer_dense(units = 64,
+                activation = "relu",
+                input_shape = dim(train_data)[[2]]) %>%
+    layer_dense(units = 64, 
+                activation = "relu") %>%
+    layer_dense(units = 1)
+  
+  model %>%
+    compile(optimizer = "rmsprop",
+            loss = "mse",
+            metrics = c("mae"))
+}
+```
+
+-   The last layer of the model has a single unit with no activation because it is a linear layer.
+
+    -   This is normal for a scalar regression where we're predicting a single continuous value.
+
+    -   If we were to add an activation function, it would constrain the range that the output could take.
+
+        -   i.e. If we applied a `sigmoid` activation function to the last layer, the network could only learn to predict values between 0 and 1. That wouldn't be helpful for this problem and we want a linear layer so that the network is free to predict values at any range.
+
+-   We are also using the `mse` loss function ([mean squared error]{.underline}), which is the square of the distance between the predictions and their targets.
+
+-   The metric for this model is `mae` ([mean absolute error]{.underline}), which is the absolute value of the differene between the prediction and the targets.
+
+    -   An MAE of 0.5 for this problem means that are predictions are off by \$500 on average.
+
+        -   If we use MSE for our metric, we would need to be careful about units because its in squared units. Having X squared dollars off is hard to quantify/interpret. RMSE is away around this.
+
+#### Validating using K-fold validation
+
+Since the dataset is small, its a good idea to use K-fold cross-validation in order to minimize the variance with regard to the validation split. This will make it easier to evaluate the model.
+
+##### K-fold validation (4 folds)
+
+```{r}
+k <- 4
+indices <- sample(1:nrow(train_data)) # randomize order of samples
+folds <- cut(indices, breaks = k, labels = FALSE)
+
+num_epochs <- 100
+all_scores <- c()
+for (i in 1:k){
+  cat("processing fold #", i, "\n")
+  
+  # Prepares the validation data from partition #k
+  val_indices <- which(folds == i, arr.ind = TRUE)
+  val_data <- train_data[val_indices, ]
+  val_targets <- train_targets[val_indices]
+  # Prepares the training data from all other partitions
+  partial_train_data <- train_data[-val_indices, ]
+  partial_train_targets <- train_targets[-val_indices]
+  
+  # Builds Keras model that is already compiled
+  model <- build_model()
+  
+  model %>% fit(partial_train_data,
+                partial_train_targets,
+                epochs = num_epochs,
+                batch_size = 1,
+                verbose = 0)
+  
+  results <- model %>%
+    evaluate(val_data, val_targets, verbose = 0)
+  all_scores <- c(all_scores, results[[2]])
+  
+}
+```
+
+-   The mean mae for me is 7.2, which means. we're off by over \$7K for a \$50K house. This is a bit too high as there was one outlier at 17.1
+
+#### Train the network longer: 500 epochs
+
+For this network, we'll increase the epochs from 100 to 500 and record how each model does at each epoch.
+
+```{r}
+num_epochs <- 500
+
+all_mae_histories <- NULL 
+for (i in 1:k){ 
+  cat("processing fold #", i, "\n") 
+  
+  val_indices <- which(folds == i, arr.ind = TRUE) 
+  val_data <- train_data[val_indices,] 
+  val_targets <- train_targets[val_indices] 
+  
+  partial_train_data <- train_data[-val_indices,] 
+  partial_train_targets <- train_targets[-val_indices]
+  
+  model <- build_model() 
+  
+  history <- model %>% 
+    fit(partial_train_data, 
+        partial_train_targets, 
+        validation_data = list(val_data, val_targets),
+        epochs = num_epochs,
+        batch_size = 1, 
+        verbose = 0) 
+  mae_history <- history$metrics$mae 
+  all_mae_histories <- rbind(all_mae_histories, mae_history)
+}
+```
+
+```{r}
+average_mae_history <- data.frame( epoch = seq(1:ncol(all_mae_histories)), validation_mae = apply(all_mae_histories, 2, mean))
+```
+
+```{r}
+ggplot(average_mae_history, aes(x = epoch, y = validation_mae)) + geom_line()
+```
