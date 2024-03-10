@@ -1,0 +1,214 @@
+---
+title: "Movie Review Binary Classication"
+format: html
+editor: visual
+---
+
+# IMDB movie review binary classification
+
+#### Background
+
+The IMDB dataset contains 50K highly polarized reviews that we will use to classify as either positive or negative. The reviews are split 50/50 between the two options. The dataset is also included in the keras package.
+
+#### Packages
+
+```{r}
+library(keras3)
+```
+
+#### Loading the IMDB dataset
+
+```{r}
+set.seed(123)
+imdb <- dataset_imdb(num_words = 10000)
+c(c(train_data, train_labels), c(test_data, test_labels)) %<-% imdb
+```
+
+Since the datasets in the keras package are all nested lists of training/test data, we can use the multi-assignment operator \`%\<-% from the zeallot package to unpack the lists. If we could do this manually with the following code:
+
+```{r, eval = FALSE}
+imdb <- dataset_imdb(num_words = 10000)
+train_data <- imdb$train$x
+train_labels <- imdb$train$y
+test_data <- imdb$test$x
+test_labels <- imdb$test$y
+```
+
+We are using `num_words = 10000` because we want to keep only the top 10K most frequently occurring words for the training data.
+
+-   This makes vectors of data more manageable in comparison to the 88,585 unique words in the training set.
+
+The lists `train_data` and `test_data` are lists of reviews, where each review is a list of word indices (preprocessed for us). The vectors `train_labels` and `test_labels` are coded as 0 for negative and 1 for positive.
+
+```{r, eval = FALSE}
+str(train_data)
+str(train_labels)
+```
+
+Since we constrained the number of words to the top 10K most frequently used words, we shouldn't see a word index greater than 10K:
+
+```{r, eval = FALSE}
+max(sapply(train_data, max))
+```
+
+We can also decode the reviews back into English words. Since we're only using the top 10K most frequently used words, we won't be able to decode the reviews 100%. We'll insert a ? for words that weren't part of the 10K list.
+
+For example, we can decode the first review:
+
+```{r, eval = FALSE}
+# A named vector that maps words to an integer index
+word_index <- dataset_imdb_word_index()
+
+# Reverses it by mapping the integer indices to the words
+reverse_word_index <- names(word_index)
+names(reverse_word_index) <- as.character(word_index)
+decoded_words <- train_data[[1]] %>%
+  sapply(function(i) {
+    # Decodes the review
+    if (i > 3) reverse_word_index[[as.character(i - 3)]]
+    else "?"
+    })
+```
+
+-   There is an offset for decoding the review by 3 because 0, 1, and 2 are reserved for indices for "padding", "start of the sequence", or "unknown"
+
+The decoded review output:
+
+```         
+? this film was just brilliant casting location scenery story direction
+everyone's really suited the part they played and you could just imagine being there robert ? is an amazing actor and now the same being director ...
+```
+
+#### Prepping the data
+
+We will prep the data using multi-hot encoding:
+
+```{r}
+ vectorize_sequences <- function(sequences, dimension = 10000){
+   # Create an all zero matrix of shape (length(sequences,), dimension)
+   results <- array(0, dim = c(length(sequences), dimension))
+   for (i in seq_along(sequences)) {
+     sequence <- sequences[[i]]
+     for (j in sequence)
+       # Set specific indices of results to 1s
+       results[i, j] <- 1
+     }
+   results
+ }
+ 
+# Vectorize training data
+x_train <- vectorize_sequences(train_data)
+# Vectorize test data
+x_test <- vectorize_sequences(test_data)
+```
+
+Samples now look like:
+
+```{r, eval = FALSE}
+str(x_train)
+```
+
+We also want to vectorize our labels, which can be done by casting integers to floats:
+
+```{r}
+y_train <- as.numeric(train_labels)
+y_test <- as.numeric(test_labels)
+```
+
+```{r, eval = FAlSE}
+# View vectorized samples
+str(x_train)
+```
+
+#### Building the model
+
+For this binary classification model, with a vector as input and scalar labels, we'll use densely connected layers (`layer_dense()`) with `relu` activation. We should only need 2 intermediate layers with 16 units and the predictions will use a `sigmoid` activation for the probability:
+
+```{r}
+model <- keras_model_sequential() %>%
+  layer_dense(16, activation = "relu") %>%
+  layer_dense(16, activation = "relu") %>%
+  layer_dense(1, activation = "sigmoid")
+```
+
+Since the binary model output is are probabilities, we'll use the `binary_crossentropy` loss function and the `rmsprop` for the optimizer:
+
+```{r}
+model %>% compile(optimizer = "rmsprop",
+                  loss = "binary_crossentropy",
+                  metrics = "accuracy")
+```
+
+#### Create validation set
+
+We'll use a validation set to monitor the accuracy of the model during training. The validation set will be 10K samples from the training set
+
+```{r}
+# Set aside 10K samples for validation set
+x_val <- x_train[seq(10000),]
+partial_x_train <- x_train[-seq(10000),]
+y_val <- y_train[seq(10000)]
+partial_y_train <- y_train[-seq(10000)]
+```
+
+-   In this example, we're taking samples from the first 10K rows, which is probably not a good idea. It would be best to take a random sample instead, but we'll just lop off the first 10K rows/samples for simplicity.
+
+Now, we can train the model with 20 epochs:
+
+```{r}
+history <- model %>%
+  fit(partial_x_train,
+      partial_y_train,
+      epochs = 20,
+      batch_size = 512,
+      validation_data = list(x_val, y_val))
+```
+
+We can also plot the loss and accuracy curves to see when we start to overfit:
+
+```{r}
+plot(history)
+```
+
+-   We can see that we are starting to overfit the model around the 4th epoch as the accuracy is now lower than the peak.
+    -   Normally, this will be different each time since the first layer's weights are random. For this example, I set a seed to make sure it was repeatable.
+    -   The point where we can see overfitting starting is where the accuracy of the model starts to go down.
+
+Within the `history` object, there is a list of metrics (`loss`, `accuracy`, `val_loss`, and `val_accuracy`.
+
+-   The `val_` is the performance on validation set.
+
+#### Retrain model to prevent overfitting
+
+To avoid overfitting, we're going to retrain the model with 3 epochs and then evaluate it on the test data.
+
+```{r}
+model <- keras_model_sequential() %>%
+  layer_dense(16, activation = "relu") %>%
+  layer_dense(16, activation = "relu") %>%
+  layer_dense(1, activation = "sigmoid")
+
+model %>% compile(optimizer = "rmsprop",
+                  loss = "binary_crossentropy",
+                  metrics = "accuracy")
+
+model %>%
+  fit(x_train, # now using the full train set
+      y_train,
+      epochs = 3,
+      batch_size = 512)
+
+results <- model %>% evaluate(x_test, y_test)
+```
+
+```{r}
+results
+```
+
+-   The test loss is 0.28 and the test accuracy is 0.89, which is much better than the 50/50 odds from random choice.
+
+We can also use the model to generate predictions on new data:
+
+```{r, eval = FALSE}
+model %>% predict(x_test)
+```

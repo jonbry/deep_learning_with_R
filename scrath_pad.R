@@ -38,3 +38,8 @@ v$assign(tf$ones(shape(3,1)))
 
 with(tf$device('CPU'), {v[1, 1]$assign(3)})
 v$assign_add(tf$ones(shape(3, 1)))
+
+
+test_data = matrix(1:10, ncol = 2)
+test_data_small = test_data[seq(3), ]
+test_data_large = test_data[-seq(2), ]
