@@ -22,6 +22,8 @@ library(keras3)
 reuters <- dataset_reuters(num_words = 10000)
 # Unpack lists from dataset
 c(c(train_data, train_labels), c(test_data, test_labels)) %<-% reuters
+# Set seed to get consistent results
+set.seed(123)
 ```
 
 -   For simplicity, we're keeping the number of words to the 10000 most frequently used words
@@ -68,14 +70,14 @@ Next, we need to vectorize the data, which we can do with the following function
 
 ```{r}
 vectorize_sequences <- function(sequences, dimension = 10000) {
-results <- matrix(0, nrow = length(sequences), ncol = dimension)
+  results <- matrix(0, nrow = length(sequences), ncol = dimension)
   for (i in seq_along(sequences))
       results[i, sequences[[i]]] <- 1
   results
 }
 
 x_train <- vectorize_sequences(train_data)
-y_train <- vectorize_sequences(test_data)
+x_test <- vectorize_sequences(test_data)
 ```
 
 For vector-izing the labels, we use one-hot or categorical encoding, which embeds each label as an all-zero vector with a 1 in the place of the label index.
@@ -87,7 +89,7 @@ to_one_hot <- function(labels, dimension = 46) {
   labels <- labels + 1
   for(i in seq_along(labels)) {
     j <- labels[[i]]
-        results[i, j] <- 1
+    results[i, j] <- 1
       }
   results
 }
@@ -103,7 +105,7 @@ y_test <- to_one_hot(test_labels)
 Since we have 46 different classes, we need layers that are large enough to avoid information bottlenecks. In this case, we'll go with 64 unit intermediate layers:
 
 ```{r}
-model <- keras_model_sequential() %>%
+model <-  keras3::keras_model_sequential() %>%
           layer_dense(64, activation = "relu") %>%
           layer_dense(64, activation = "relu") %>%
           layer_dense(46, activation = "softmax")
@@ -121,4 +123,81 @@ For this problem, the best loss function will be the `categorical_crossentropy` 
 model %>% compile(optimizer = "rmsprop",
                   loss = "categorical_crossentropy",
                   metrics = "accuracy")
+```
+
+#### Validation
+
+We'll take 1000 samples from the training set to use as a validation set:
+
+```{r}
+val_indices <- 1:1000
+
+x_val <- x_train[val_indices, ]
+partial_x_train <- x_train[-val_indices, ]
+
+y_val <- y_train[val_indices, ]
+partial_y_train <- y_train[-val_indices, ]
+```
+
+We will train the model using 20 epochs:
+
+```{r}
+history <- model %>% fit(
+  partial_x_train,
+  partial_y_train,
+  epochs = 20,
+  batch_size = 512,
+  validation_data = list(x_val, y_val)
+)
+
+```
+
+Plot of the loss and accuracy curves:
+
+```{r}
+plot(history)
+```
+
+-   Overfitting starts at epoch 8 so we'll train a model from scratch using 8 epochs and then evaluate the model on the test data
+
+#### Retraining  the model
+
+```{r}
+final_model <- keras_model_sequential() %>%
+    layer_dense(64, activation = "relu") %>%
+    layer_dense(64, activation = "relu") %>%
+    layer_dense(46, activation = "softmax")
+
+final_model %>% compile(optimizer = "rmsprop",
+                  loss = "categorical_crossentropy",
+                  metrics = "accuracy")
+
+final_model %>% fit(x_train, y_train, epochs = 8, batch_size = 512)
+results <- final_model %>% evaluate(x_test, y_test)
+results
+```
+
+-   We were able to achieve an accuracy of \~80%
+
+-   If this was a binary classification problem, assigning a random classifier would be 50%, so with 46 classes, we assigning a random classifier would be much lower
+
+```{r}
+mean(test_labels == sample(test_labels))
+```
+
+Randomness would give us \~19% classification accuracy so we're much higher than random chance.
+
+#### Generating predictions on new data
+
+Calling a model's `predict()` method on new samples returns a class probability distribution over all 46 topics for each sample:
+
+```{r}
+predictions <- final_model %>% predict(x_test)
+str(predictions)
+```
+
+For a given sample, we can see which class has the highest probability by finding which probability was the largest:
+
+```{r}
+which.max(predictions[1, ])
 ```
