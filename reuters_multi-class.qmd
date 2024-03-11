@@ -4,23 +4,121 @@ format: html
 editor: visual
 ---
 
-## Quarto
+## Multi-class classification of Reuters's newswires
 
-Quarto enables you to weave together content and executable code into a finished document. To learn more about Quarto see <https://quarto.org>.
+The goal of this project is to build a model to classify Reuters newswires into 46 mutually exclusive topics (single-label multi-class classification)
 
-## Running Code
+#### The data
 
-When you click the **Render** button a document will be generated that includes both content and the output of embedded code. You can embed code like this:
+The Reuters dataset is comprised of newswires and their topics that were published in 1986.
 
-```{r}
-1 + 1
-```
+-   It contains 46 different mutually exclusive topics and each topic has at least 10 example in the training set.
 
-You can add options to executable code like this
+-   The dataset is built into the keras package.
 
 ```{r}
-#| echo: false
-2 * 2
+library(keras3)
+# Load data
+reuters <- dataset_reuters(num_words = 10000)
+# Unpack lists from dataset
+c(c(train_data, train_labels), c(test_data, test_labels)) %<-% reuters
 ```
 
-The `echo: false` option disables the printing of code (only output is displayed).
+-   For simplicity, we're keeping the number of words to the 10000 most frequently used words
+
+```{r, eval = FALSE}
+cat("Number of training samples:", length(train_data),"\n")
+# number of test samples
+cat("Number of test samples:", length(test_data))
+# Example of word indices
+str(train_data)
+
+```
+
+If we want to decode a newswire back to its original text we can use the following (this decodes the first newswire):
+
+```{r, eval = FALSE}
+word_index <- dataset_reuters_word_index()
+
+reverse_word_index <- names(word_index)
+names(reverse_word_index) <- as.character(word_index)
+
+decoded_words <- train_data[[1]] %>%
+  sapply(function(i) {
+    if (i > 3) reverse_word_index[[as.character(i - 3)]]
+    else "?"
+    })
+decoded_review <- paste0(decoded_words, collapse = " ")
+decoded_review
+```
+
+-   The indices are off by 3 because 0, 1, and 2 are reserved indices for "padding", "start of sequence", and "unknown".
+
+-   We will see ? for words that are not part of the 10K most frequently used words, since they can't be recovered.
+
+The labels are integers between 0 and 45, which is a topic index:
+
+```{r, eval = FALSE}
+str(train_labels)
+```
+
+#### Preparing the data
+
+Next, we need to vectorize the data, which we can do with the following function:
+
+```{r}
+vectorize_sequences <- function(sequences, dimension = 10000) {
+results <- matrix(0, nrow = length(sequences), ncol = dimension)
+  for (i in seq_along(sequences))
+      results[i, sequences[[i]]] <- 1
+  results
+}
+
+x_train <- vectorize_sequences(train_data)
+y_train <- vectorize_sequences(test_data)
+```
+
+For vector-izing the labels, we use one-hot or categorical encoding, which embeds each label as an all-zero vector with a 1 in the place of the label index.
+
+```{r}
+to_one_hot <- function(labels, dimension = 46) {
+  results <- matrix(0, nrow = length(labels), ncol = dimension)
+  # Vectorize training labell
+  labels <- labels + 1
+  for(i in seq_along(labels)) {
+    j <- labels[[i]]
+        results[i, j] <- 1
+      }
+  results
+}
+
+y_train <- to_one_hot(train_labels)
+y_test <- to_one_hot(test_labels)
+```
+
+-   This can also be done in keras with `to_categorical()` rather then creating a function.
+
+#### Building the model
+
+Since we have 46 different classes, we need layers that are large enough to avoid information bottlenecks. In this case, we'll go with 64 unit intermediate layers:
+
+```{r}
+model <- keras_model_sequential() %>%
+          layer_dense(64, activation = "relu") %>%
+          layer_dense(64, activation = "relu") %>%
+          layer_dense(46, activation = "softmax")
+```
+
+-   Since the final output will be a probability, we use `softmax` for the last activation
+
+#### Compiling the model
+
+For this problem, the best loss function will be the `categorical_crossentropy` function, since it measures the difference between two distributions.
+
+-   The two distributions we'll be measuring is the probability distribution of the output and the true distribution of the labels.
+
+```{r}
+model %>% compile(optimizer = "rmsprop",
+                  loss = "categorical_crossentropy",
+                  metrics = "accuracy")
+```
