@@ -36,3 +36,176 @@ str(train_targets)
     -   Note: The prices seem super low because they are from the mid-70s and haven't been adjusted for inflation.
 
 #### Preparing the data
+
+We need to do feature-wise normalization on the data since the range of the features vary widely. We can do this using the `scale()` function:
+
+```{r}
+mean <- apply(train_data, 2, mean)
+sd <- apply(train_data, 2, sd)
+train_data <- scale(train_data, center = mean, scale = sd)
+test_data <- scale(test_data, center = mean, scale = sd)
+```
+
+-   Note: We are using the training data for scaling both the test and train data.
+
+#### Building the model
+
+Since we have small set of samples, we will use a small model with two intermediate layers, each with 64 units.
+
+-   Usually, we will see worse overfitting when we have little training data.
+
+    -   Using a small model can help combat overfitting
+
+```{r}
+# Function to build a model so we can instantiate the same model multiple times
+build_model <- function() {
+  model <- keras_model_sequential() %>%
+  layer_dense(64, activation = "relu") %>%
+  layer_dense(64, activation = "relu") %>%
+  layer_dense(1)
+  
+  model %>% compile(optimizer = "rmsprop",
+                    loss = "mse",
+                    metrics = "mae")
+  return(model)
+}
+```
+
+-   Since we are doing a regression, the model ends with a single unit with no activation (a linear layer), which is typical for a scalar regression.
+
+-   The model is also compiled with the `mse` loss function, which is common for regression problems.
+
+-   Lastly, the `mae` is being used for monitoring, where a value of 0.5 would translate to the prediction being off by \$500
+
+#### Validation using K-fold validation
+
+Since we have a small sample size, we'll use K-fold cross-validation for validating the model
+
+```{r}
+# Number of folds
+k <- 4
+# Randomly assigns a fold id for each value in the training data
+fold_id <- sample(rep(1:k, length.out = nrow(train_data)))
+num_epochs <- 100
+all_scores <- numeric()
+
+# Loop to create the model for each fold and record scores
+for (i in 1:k) {
+  cat("Processing fold #", i, "\n")
+  val_indices <- which(fold_id == i) # Generates row numbers based on fold number
+  val_data <- train_data[val_indices, ] # Values at specified row numbers
+  # Train data based on partition
+  val_targets <- train_targets[val_indices] 
+  partial_train_data <- train_data[-val_indices, ]
+  partial_train_targets <- train_targets[-val_indices]
+  # Build keras model that has already been compiled previously
+  model <- build_model()
+  # Train model
+  model %>% fit(partial_train_data,
+                partial_train_targets,
+                epochs = num_epochs,
+                batch_size = 16,
+                verbose = 0) # silent mode
+  # Evaluate the model on the validation set.
+  results <- model %>%
+    evaluate(val_data, val_targets, verbose = 0)
+  all_scores[[i]] <- results[['mae']]
+}
+  
+```
+
+With 100 epochs, we get the following results:
+
+```{r}
+all_scores
+mean(all_scores)
+```
+
+-   We get an average score of 2.3, which is more reliable thanks to K-fold cross-validation.
+
+    -   This translates to being off by roughly \$2,300 on average, which is significant seeing how the prices of the homes rang between \$10K-\$50K.
+
+#### Retraining with more epochs
+
+Let's see if training with more epochs will result in a higher accuracy. We'll keep track of how well the does at each epoch by modifying the training loop to save the per-epoch validation score for each fold.
+
+```{r}
+num_epochs <- 500
+all_mae_histories <- list()
+for (i in 1:k) {
+  cat("Processing fold #", i, "\n")
+  val_indices <- which(fold_id == i)
+  val_data <- train_data[val_indices, ]
+  val_targets <- train_targets[val_indices]
+  partial_train_data <- train_data[-val_indices, ]
+  partial_train_targets <- train_targets[-val_indices]
+  
+  model <- build_model()
+  history <- model %>% fit(
+    partial_train_data, partial_train_targets,
+    validation_data = list(val_data, val_targets),
+    epochs = num_epochs, batch_size = 16, verbose = 0
+  )
+  # Per-epoch log of the validation score for each fold
+  mae_history <- history$metrics$val_mae
+  all_mae_histories[[i]] <- mae_history
+}
+
+  
+```
+
+Combine the results for each fold into a single matrix and compute the average per-epoch MAE scores for all the folds
+
+```{r}
+# Combine into single matrix
+all_mae_histories <- do.call(cbind, all_mae_histories)
+# Find per-epoch average for all folds
+average_mae_history <- rowMeans(all_mae_histories)
+```
+
+Plot the average per-epoch MAE scores for all the folds:
+
+```{r}
+truncated_mae_history <- average_mae_history[-(1:10)]
+plot(average_mae_history, xlab = "epoch", ylab = "Validation MAE", type = 'l',
+     ylim = range(truncated_mae_history))
+```
+
+-   Note: The scale was causing the plot to be challenging to read so we eliminated the first 10 epochs to make the plot more easy to interpret.
+
+-   We can see that around we minimize the MAE around 100 - 140 epochs, and then we start overfitting.
+
+We can actually find the exact number of empochs that produced the minimum MAE:
+
+```{r}
+which.min(average_mae_history)
+```
+
+Let's now train the final model and evaluate it using the test data.
+
+```{r}
+model <- build_model()
+model %>% fit(train_data,
+              train_targets,
+              epochs = 114, 
+              batch_size = 16,
+              verbose = 0)
+
+result <- model %>% evaluate(test_data, test_targets)
+result["mae"]
+```
+
+-   Testing the model actually increased the MAE to 2.44, which is \$2400 off the true price on average. This By varying the number of layers and units per layer, it's likely we can squeeze out additional performance.
+
+#### Generating Predicitons on new data
+
+Using `predict()` will return the model's guess for the sample's price in thousands of dollars:
+
+```{r}
+predictions <- model %>% predict(test_data)
+predictions[1, ]
+```
+
+-   The first house in the test set is predicted to have a price of \$7,500
+
+    -   The price was actually \$7,200, which means we were only off by \$300.
