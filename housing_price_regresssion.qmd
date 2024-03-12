@@ -1,0 +1,38 @@
+---
+title: "Boston Housing Prices Regression"
+format: html
+editor: visual
+---
+
+## Predicting housing prices with a regression
+
+#### The data
+
+Suppose we want to predict the price of housing in Boston in the mid to late 1970s. Luckily, we have a rather small dataset of housing prices (506 samples) from the mid-70s that we can use for a regression.
+
+-   The samples are broken down into 404 training samples and 102 test samples
+
+-   Each feature has a different scale and will need to be regularized.
+
+```{r}
+# Load the data
+library(keras3)
+boston <- dataset_boston_housing()
+c(c(train_data, train_targets), c(test_data, test_targets)) %<-% boston
+```
+
+Inspect the data
+
+```{r}
+str(train_data)
+str(test_data)
+str(train_targets)
+```
+
+-   There are 13 numerical features associated with each sample
+
+-   The targets are the median value of the homes in thousands of dollars
+
+    -   Note: The prices seem super low because they are from the mid-70s and haven't been adjusted for inflation.
+
+#### Preparing the data
