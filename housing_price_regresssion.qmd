@@ -175,7 +175,7 @@ plot(average_mae_history, xlab = "epoch", ylab = "Validation MAE", type = 'l',
 
 -   We can see that around we minimize the MAE around 100 - 140 epochs, and then we start overfitting.
 
-We can actually find the exact number of empochs that produced the minimum MAE:
+We can actually find the exact number of epochs that produced the minimum MAE:
 
 ```{r}
 which.min(average_mae_history)
@@ -197,7 +197,7 @@ result["mae"]
 
 -   Testing the model actually increased the MAE to 2.44, which is \$2400 off the true price on average. This By varying the number of layers and units per layer, it's likely we can squeeze out additional performance.
 
-#### Generating Predicitons on new data
+#### Generating Predictions on new data
 
 Using `predict()` will return the model's guess for the sample's price in thousands of dollars:
 
