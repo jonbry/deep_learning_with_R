@@ -32,7 +32,7 @@ file_chmod("~/.kaggle/kaggle.json", "0600")
 reticulate::py_install("kaggle", pip = TRUE)
 ```
 
-```{r}
+```{r, eval = FALSE}
 # Force reticulate to initialize python
 op_add(1, 1)
 
@@ -40,3 +40,5 @@ op_add(1, 1)
 nzchar(Sys.which("kaggle"))
 system('kaggle competitions download -c dogs-vs-cats')
 ```
+
+-   Note: I marked dog-vs-cats in gitignore before opening RStudio because it will slow things down
