@@ -17,6 +17,7 @@ For this project, we'll use a small dataset of 5000 images of cats and dogs (50/
 
 ```{r}
 library(fs)
+library(keras3)
 ```
 
 ### Data
@@ -24,5 +25,18 @@ library(fs)
 We'll download the data from Kaggle through their API.
 
 ```{r, eval = FALSE}
+library(fs) dir_create("~/.kaggle") 
+file_move("~/Downloads/kaggle.json", "~/.kaggle/") 
+file_chmod("~/.kaggle/kaggle.json", "0600")
 
+reticulate::py_install("kaggle", pip = TRUE)
+```
+
+```{r}
+# Force reticulate to initialize python
+op_add(1, 1)
+
+# Now 'kaggle' should be on the PATH
+nzchar(Sys.which("kaggle"))
+system('kaggle competitions download -c dogs-vs-cats')
 ```
