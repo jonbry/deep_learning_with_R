@@ -1,0 +1,28 @@
+---
+title: "Dog/Cat classification using Convnet"
+format: html
+editor: visual
+---
+
+## Classifying Dogs and Cats using Convnet
+
+For this project, we'll use a small dataset of 5000 images of cats and dogs (50/50 split). - We'll use 2000 images for training, 1000 for validation, and 2000 for testing.
+
+### Plan of action
+
+1.  Naively train a small convnet on the training sample without any regularization to set a baseline (\~70%)
+2.  Use data augmentation to mitigate overfitting for computer vision (improve \~80-85%)
+3.  Apply feature extraction with pre-trained model (\~97.5%)
+4.  Apply fine-tuning a pre-trained model (\~98.5%)
+
+```{r}
+library(fs)
+```
+
+### Data
+
+We'll download the data from Kaggle through their API.
+
+```{r, eval = FALSE}
+
+```
