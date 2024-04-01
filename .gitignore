@@ -3,3 +3,5 @@
 .RData
 .Ruserdata
 dogs-vs-cats.zip
+dogs-vs-cats
+.DS_Store
