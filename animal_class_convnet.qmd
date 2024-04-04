@@ -80,3 +80,40 @@ make_subset("test", start_index = 1501, end_index = 2500)
 ```
 
 -   Also added to gitignore
+
+### Building the model
+
+Since this is a binary-classification problem, we'll end with a single unit (`layer_dense()` of size 1) and a `sigmoid` activation
+
+We will start the model with `layer_rescaling()`, which will rescale the image input ranges from \[0, 255\] to \[0, 1\]
+
+```{r}
+inputs <- layer_input(shape = c(180, 180, 3))
+  outputs <- inputs %>%
+  # Rescale inputs to the [0, 1] range by dividing them by 255.
+  layer_rescaling(1 / 255) %>%
+  layer_conv_2d(filters = 32, kernel_size = 3, activation = "relu") %>%
+  layer_max_pooling_2d(pool_size = 2) %>%
+  layer_conv_2d(filters = 64, kernel_size = 3, activation = "relu") %>%
+  layer_max_pooling_2d(pool_size = 2) %>%
+  layer_conv_2d(filters = 128, kernel_size = 3, activation = "relu") %>%
+  layer_max_pooling_2d(pool_size = 2) %>%
+  layer_conv_2d(filters = 256, kernel_size = 3, activation = "relu") %>%
+  layer_max_pooling_2d(pool_size = 2) %>%
+  layer_conv_2d(filters = 256, kernel_size = 3, activation = "relu") %>%
+  layer_flatten() %>%
+  layer_dense(1, activation = "sigmoid")
+model <- keras_model(inputs, outputs)
+
+model
+```
+
+For the compilation step, we'll use the `RMSprop` and `binary_crossentropy` for the loss since we're ending with a single sigmoid unit.
+
+```{r}
+ model %>% compile(loss = "binary_crossentropy",
+                          optimizer = "rmsprop",
+                          metrics = "accuracy")
+```
+
+### Data pre-processing
