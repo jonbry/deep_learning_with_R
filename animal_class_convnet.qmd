@@ -309,8 +309,23 @@ plot(history)
 ```
 
 ```{r}
-
 test_model <- load_model("convnet_from_scratch_with_augmentation.keras") 
 result <- evaluate(test_model, test_dataset)
 cat(sprintf("Test accuracy: %.3f\n", result["accuracy"]))
+```
+
+### Leverage a pre-trained model
+
+We'll use the convolutional base of the VGG16 model (published in 2014) to extract features from dog and cat images. We'll use the VGG16's convolutional base to extract features, and then train a dog-vs-cat classifier on top of those features.
+
+#### Instantiate the VGG16 model
+
+```{r}
+conv_base <- application_vgg16(
+  weights <- "imagenet",
+  include_top = FALSE,
+  input_shape = c(180, 180, 3)
+)
+
+conv_base
 ```
