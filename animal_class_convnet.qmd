@@ -25,7 +25,7 @@ library(keras3)
 We'll download the data from Kaggle through their API.
 
 ```{r, eval = FALSE}
-library(fs) dir_create("~/.kaggle") 
+dir_create("~/.kaggle") 
 file_move("~/Downloads/kaggle.json", "~/.kaggle/") 
 file_chmod("~/.kaggle/kaggle.json", "0600")
 
@@ -59,6 +59,10 @@ original_dir <- path("dogs-vs-cats/train")
 # Directory for smaller dataset
 new_base_dir <- path("cats_vs_dogs_small")
 
+```
+
+```{r, eval=FALSE}
+# Only needs to be run once
 # Function that copies images between start_index and end_index to the new subdirectory. The subset_name is either train, validation, or test
 make_subset <- function(subset_name, start_index, end_index){
   for (category in c("dog", "cat")) {
@@ -75,7 +79,6 @@ make_subset("train", start_index = 1, end_index = 1000)
 make_subset("validation", start_index = 1001, end_index = 1500)
 # Create test subset with next 1000 images of each category
 make_subset("test", start_index = 1501, end_index = 2500)
-
 
 ```
 
@@ -156,7 +159,7 @@ The Dataset objects creates batches of 180 x 180 RGB images (shape `(32, 180, 18
 We can display the shapes of the data and labels created by the Dataset object:
 
 ```{r}
-c(data_batch, labels_batch) %<-% iter_next(as_iterator(train_dataset))
+c(data_batch, labels_batch) %<-% reticulate::iter_next(reticulate::as_iterator(train_dataset))
 data_batch$shape
 
 labels_batch$shape
@@ -197,4 +200,117 @@ We can plot the results:
 
 ```{r}
 plot(history)
+```
+
+We can see overfitting, which is what we want.
+
+-   The accuracy for training hits almost 100% and validation tops out at around 75% after \~10 epochs.
+
+To check the test accuracy we can reload the model from the saved file to evaluate it:
+
+```{r}
+
+```
+
+-   The accuracy on the test dataset was 71.4% (answers will change due to randomization the initializations of the neural network.
+
+### Adding data augmentation
+
+To improve generalization, we'll use data augmentation to increase the training sample size, but the model will never see the exact same picture twice. This is done by add random transformations to existing training samples.
+
+-   We'll add [data augmentation layers]{.underline} to the beginning of the model, following a `keras_model_sequential()` layer and before the `layer_rescaling()`:
+
+```{r}
+data_augmentation <- keras_model_sequential() |>
+  layer_random_flip("horizontal") |>
+  layer_random_rotation(0.1) |>
+  layer_random_zoom(0.2)
+```
+
+-   `layer_random_flip("horizontal")` applies a horizontal flip to a random 50% of the images being processed
+
+-   `layer_random_rotation(0.1)` rotates the images by a random value in the range of `[-10%, +10%]`
+
+    -   These are fractions of a full circle. In degrees it would be `[-36 deg, +36 deg]`
+
+-   `layer_random_zoom(0.2)` zooms in or out of an image by a random factor in the range of `[-20%, +20%]`
+
+Below is an example of the augmented images:
+
+```{r}
+library(tfdatasets)
+batch <- train_dataset %>%
+  as_iterator() %>%
+  iter_next()
+
+c(images, labels) %<-% batch
+# Prepare the graphics device for nine images
+par(mfrow = c(3, 3), mar = rep(0.5, 4))
+
+# Plot the first image of the batch without augmentation
+image <- images[1, , , ]
+plot(as.raster(as.array(image), max = 255))
+
+for (i in 2:9) {
+  # Apply augmentation stage to each batch of images
+  augmented_images <- data_augmentation(images)
+  augmented_image <- augmented_images[1, , , ]
+  # Display the first image in the output batch
+  plot(as.raster(as.array(augmented_image), max = 255))
+}
+```
+
+To further decrease overfitting, we can add a `layer_dropout()` before the densely connected layer:
+
+```{r}
+inputs <- layer_input(shape = c(180, 180, 3))
+outputs <- inputs %>%
+  data_augmentation() %>%
+  layer_rescaling(1 / 255) %>%
+  layer_conv_2d(filters = 32, kernel_size = 3, activation = "relu") %>%
+  layer_max_pooling_2d(pool_size = 2) %>%
+  layer_conv_2d(filters = 64, kernel_size = 3, activation = "relu") %>%
+  layer_max_pooling_2d(pool_size = 2) %>%
+  layer_conv_2d(filters = 128, kernel_size = 3, activation = "relu") %>%
+  layer_max_pooling_2d(pool_size = 2) %>%
+  layer_conv_2d(filters = 256, kernel_size = 3, activation = "relu") %>%
+  layer_max_pooling_2d(pool_size = 2) %>%
+  layer_conv_2d(filters = 256, kernel_size = 3, activation = "relu") %>%
+  layer_flatten() %>%
+  layer_dropout(0.5) %>%
+  layer_dense(1, activation = "sigmoid")
+model <- keras_model(inputs, outputs)
+model %>% compile(loss = "binary_crossentropy",
+                  optimizer = "rmsprop",
+                  metrics = "accuracy")
+```
+
+If we train the model using data augmentation and dropout, we can expect overfitting to take much longer. For this reason, it makes sense to increase the number of epochs to 100:
+
+```{r}
+callbacks <- list(
+  callback_model_checkpoint(
+    filepath = "convnet_from_scratch_with_augmentation.keras",
+    save_best_only = TRUE,
+    monitor = "val_loss"
+))
+
+history <- model %>% fit(
+    train_dataset,
+    epochs = 100,
+    validation_data = validation_dataset,
+    callbacks = callbacks
+)
+
+```
+
+```{r}
+plot(history)
+```
+
+```{r}
+
+test_model <- load_model("convnet_from_scratch_with_augmentation.keras") 
+result <- evaluate(test_model, test_dataset)
+cat(sprintf("Test accuracy: %.3f\n", result["accuracy"]))
 ```
