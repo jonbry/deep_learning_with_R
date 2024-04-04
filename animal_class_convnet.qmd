@@ -117,3 +117,84 @@ For the compilation step, we'll use the `RMSprop` and `binary_crossentropy` for 
 ```
 
 ### Data pre-processing
+
+The JPEG images will need to be pre-processed into floating-point tensors, which is done through the following steps:
+
+1.  Read in the picture files
+2.  Convert the JPEG content to RGB grids of pixels
+3.  Convert grids into floating-point tensors
+4.  Resize the tensors to a shared size (e.g. 180 x 180)
+5.  Pack the tensors into batches (e.g. 32)
+
+Even though these are only 5 steps, it ends up being quite a bit of code. To speed things up, Keras has the utility function `image_dataset_from_directory()`, which automates the pipeline from images to pre-processed tensors.
+
+Calling `image_dataset_from_directory()` will:
+
+-   First list the subdirectories of `directory` and assume each one contains images from one of the classes
+
+-   Next, it will then index the image files for each directory
+
+-   Finally it will create and return a TF Dataset object to read the files, shuffle them, decode them into tensors, resize them, and pack them into batches
+
+```{r}
+train_dataset <-
+  image_dataset_from_directory(new_base_dir / "train",
+                               image_size = as.integer(c(180, 180)),
+                               batch_size = 32)
+validation_dataset <-
+  image_dataset_from_directory(new_base_dir / "validation",
+                               image_size = as.integer(c(180, 180)),
+                               batch_size = 32)
+test_dataset <-
+  image_dataset_from_directory(new_base_dir / "test",
+                               image_size = as.integer(c(180, 180)),
+                               batch_size = 32)
+```
+
+The Dataset objects creates batches of 180 x 180 RGB images (shape `(32, 180, 180, 3)` and integer labels (shape `(32)`).
+
+We can display the shapes of the data and labels created by the Dataset object:
+
+```{r}
+c(data_batch, labels_batch) %<-% iter_next(as_iterator(train_dataset))
+data_batch$shape
+
+labels_batch$shape
+```
+
+### Fit the model
+
+We will use the `validation_data` argument in `fit()` to monitor the validation metrics in a separate TF Dataset object.
+
+We'll also use `callback_model_checkpoint()` to save the model after each epoch.
+
+-   Using the argument `save_best_only = TRUE` will keep track of the best performing model and save it for later use (no need to eyeball it)
+
+-   The argument `monitor = "val_loss"` will monitor the val_loss so that it can save the model with the lowest validation loss.
+
+Together, we will be saving the state of the model that has the best-performing epoch on the validation data.
+
+-   Afterwards, we won't need to retrain a new model, we can just reload the saved one.
+
+```{r}
+# Callback setup
+callbacks <- list(
+  callback_model_checkpoint(
+    filepath = "convnet_from_scratch.keras",
+    save_best_only = TRUE,
+    monitor = "val_loss"
+  )
+)
+
+history <- model %>%
+  fit(train_dataset,
+      epochs = 30,
+      validation_data = validation_dataset,
+      callbacks = callbacks)
+```
+
+We can plot the results:
+
+```{r}
+plot(history)
+```
