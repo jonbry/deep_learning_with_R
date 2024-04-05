@@ -18,6 +18,9 @@ For this project, we'll use a small dataset of 5000 images of cats and dogs (50/
 ```{r}
 library(fs)
 library(keras3)
+library(listarrays)
+library(reticulate)
+library(tfdatasets)
 ```
 
 ### Data
@@ -209,7 +212,9 @@ We can see overfitting, which is what we want.
 To check the test accuracy we can reload the model from the saved file to evaluate it:
 
 ```{r}
-
+test_model <- load_model_tf("convnet_from_scratch.keras")
+  result <- evaluate(test_model, test_dataset)
+  cat(sprintf("Test accuracy: %.3f\n", result["accuracy"]))
 ```
 
 -   The accuracy on the test dataset was 71.4% (answers will change due to randomization the initializations of the neural network.
@@ -328,4 +333,45 @@ conv_base <- application_vgg16(
 )
 
 conv_base
+```
+
+There are two ways of moving forward with feature extraction:
+
+-   [Fast feature extraction without data augmentation]{.underline} — Run the convolutional base over the dataset, record the output (arrays) to a file, use the data as input to a standalone densely connected classifier.
+
+    -   This is a fast and cheap solution because the convolutional base is only running once for every input image.
+
+    -   The downside is that we can use data augmentation
+
+-   [Feature extraction with data augmentation]{.underline} — Extend the model (`conv_base`) by adding a `Dense` layer on top and run the whole thing from the beginning.
+
+    -   Much more expensive process, but it allows us to use data augmentation since every input image goes through the convolutional base every time it is seen by the model.
+
+#### Fast feature extraction without data augmentation
+
+The `predict()` method of the `conv_base` model can be used to extract features as R arrays. We'll use \`predict()\` on all datasets:
+
+```{r}
+get_features_and_labels <- function(dataset) {
+  n_batches <- length(dataset)
+  all_features <- vector("list", n_batches)
+  all_labels <- vector("list", n_batches)
+  iterator <- as_array_iterator(dataset)
+  for (i in 1:n_batches) {
+    c(images, labels) %<-% iter_next(iterator)
+    preprocessed_images <- imagenet_preprocess_input(images)
+    features <- conv_base %>% predict(preprocessed_images)
+    all_labels[[i]] <- labels
+    all_features[[i]] <- features
+  }
+  
+  all_features <- listarrays::bind_on_rows(all_features)
+  all_labels <- listarrays::bind_on_rows(all_labels)
+  
+  list(all_features, all_labels)
+}
+  
+c(train_features, train_labels) %<-% get_features_and_labels(train_dataset)
+c(val_features, val_labels) %<-% get_features_and_labels(validation_dataset)
+c(test_features, test_labels) %<-% get_features_and_labels(test_dataset)
 ```
