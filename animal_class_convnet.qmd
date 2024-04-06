@@ -356,27 +356,29 @@ get_features_and_labels <- function(model, dataset) {
   n_batches <- length(dataset)
   all_features <- vector("list", n_batches)
   all_labels <- vector("list", n_batches)
-  iterator <- as_array_iterator(dataset)
-  for (i in 1:n_batches) {
+  iterator <- as_iterator(dataset)
+  # iterator starts with zero
+  #for (i in 1:n_batches) {
+   for (i in 0){
+    cat(i)
     c(images, labels) %<-% iter_next(iterator)
-    preprocessed_images <- application_preprocess_inputs(test_model, images)
+    summary(images)
+    preprocessed_images <- application_preprocess_inputs(model, images)
+    summary(preprocessed_images)
     features <- conv_base %>% predict(preprocessed_images)
-    all_labels[[i]] <- labels
-    all_features[[i]] <- features
-  }
+    all_labels[[i+1]] <- labels
+    all_features[[i+1]] <- features
+   }
   
-  all_features <- listarrays::bind_on_rows(all_features)
-  all_labels <- listarrays::bind_on_rows(all_labels)
-  
-  list(all_features, all_labels)
+    # # all_features <- listarrays::bind_on_rows(all_features)
+    # # all_labels <- listarrays::bind_on_rows(all_labels)
+    # 
+    # list(all_features, all_labels)
+  return(all_features) # is a tensor
 }
-  
-c(train_features, train_labels) %<-% get_features_and_labels(conv_base, train_dataset)
-c(val_features, val_labels) %<-% get_features_and_labels(validation_dataset)
-c(test_features, test_labels) %<-% get_features_and_labels(test_dataset)
 
-
-
+images_test <- get_features_and_labels(conv_base, train_dataset)
+# c(train_features, train_labels) %<-% get_features_and_labels(conv_base, train_dataset)
 
 ```
 
@@ -389,22 +391,39 @@ test_model <- application_vgg16(
 )
 
 app_vgg <- application_preprocess_inputs(test_model, train_dataset)
+data_batch_test <- application_preprocess_inputs(test_model, data_batch)
 
 
-  n_batches <- length(train_dataset)
-  all_features <- vector("list", n_batches)
-  all_labels <- vector("list", n_batches)
-  iterator <- as_array_iterator(train_dataset)
-  c(images, labels) %<-% iter_next(iterator)
-  preprocessed_images <- application_preprocess_inputs(test_model, images)
-    features <- conv_base %>% predict(preprocessed_images)
-    all_labels[[i]] <- labels
-    all_features[[i]] <- features
-  }
-  
-  all_features <- listarrays::bind_on_rows(all_features)
-  all_labels <- listarrays::bind_on_rows(all_labels)
-  
-  list(all_features, all_labels)
-}
+```
+
+```{r}
+
+
+n_batches <- length(train_dataset)
+all_features <- vector("list", n_batches)
+all_labels <- vector("list", n_batches)
+iterator <- as_iterator(train_dataset)
+c(images, labels) %<-% iter_next(iterator)
+pre_processed_image <- application_preprocess_inputs(test_model, images)
+
+
+c(images, labels) %<-% iter_next(iterator)
+preprocessed_images <- application_preprocess_inputs(test_model, images)
+features <- conv_base %>% predict(preprocessed_images)
+all_labels[[i]] <- labels
+all_features[[i]] <- features
+
+
+all_features <- listarrays::bind_on_rows(all_features)
+all_labels <- listarrays::bind_on_rows(all_labels)
+
+list(all_features, all_labels)
+
+```
+
+```{r}
+model <- application_convnext_tiny()
+
+inputer <- random_normal(c(32, 224, 224, 3))
+processed_inputs <- application_preprocess_inputs(model, inputer)
 ```
