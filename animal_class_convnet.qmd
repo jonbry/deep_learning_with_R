@@ -168,6 +168,15 @@ data_batch$shape
 labels_batch$shape
 ```
 
+```{r}
+holder <- list(nrow = length())
+please_iter <- as_iterator(train_dataset)
+for (i in 1:length(train_dataset)){
+  element <- iter_next(please_iter)
+  
+}
+```
+
 ### Fit the model
 
 We will use the `validation_data` argument in `fit()` to monitor the validation metrics in a separate TF Dataset object.
@@ -358,26 +367,22 @@ get_features_and_labels <- function(model, dataset) {
   all_labels <- vector("list", n_batches)
   iterator <- as_iterator(dataset)
   # iterator starts with zero
-  #for (i in 1:n_batches) {
-   for (i in 0){
-    cat(i)
+  for (i in 1:2) {
     c(images, labels) %<-% iter_next(iterator)
-    summary(images)
+    print(iter_next)
     preprocessed_images <- application_preprocess_inputs(model, images)
     summary(preprocessed_images)
     features <- conv_base %>% predict(preprocessed_images)
-    all_labels[[i+1]] <- labels
-    all_features[[i+1]] <- features
+    all_labels[[i]] <- labels
+    all_features[[i]] <- features
    }
-  
-    # # all_features <- listarrays::bind_on_rows(all_features)
-    # # all_labels <- listarrays::bind_on_rows(all_labels)
-    # 
-    # list(all_features, all_labels)
-  return(all_features) # is a tensor
-}
+    all_features <- listarrays::bind_on_rows(all_features, 1)
+    all_labels <- listarrays::bind_on_rows(all_labels, 1)
 
-images_test <- get_features_and_labels(conv_base, train_dataset)
+    list(all_features, all_labels)
+}
+test <- get_features_and_labels(conv_base, train_dataset)
+c(train_features, train_labels) %<-% get_features_and_labels(conv_base, train_dataset)
 # c(train_features, train_labels) %<-% get_features_and_labels(conv_base, train_dataset)
 
 ```
@@ -422,8 +427,6 @@ list(all_features, all_labels)
 ```
 
 ```{r}
-model <- application_convnext_tiny()
 
-inputer <- random_normal(c(32, 224, 224, 3))
-processed_inputs <- application_preprocess_inputs(model, inputer)
+
 ```
