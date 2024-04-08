@@ -354,28 +354,34 @@ The `predict()` method of the `conv_base` model can be used to extract features 
 ```{r}
 get_features_and_labels <- function(model, dataset) {
   n_batches <- length(dataset)
+  # Create lists to hold TF Datasets that have been processed
   all_features <- vector("list", n_batches)
   all_labels <- vector("list", n_batches)
+  # Turn datset into an interator
   iterator <- as_iterator(dataset)
-  # iterator starts with zero
   for (i in 1:n_batches) {
+    # Assign the images and labels from the next batch
     c(images, labels) %<-% iter_next(iterator)
+    # Preprocess images with respect to the model
     preprocessed_images <- application_preprocess_inputs(model, images)
+    # Predict the features based on the preprocessed images
+    # Note: predict() returns R arrays no matter what it is given
     features <- conv_base %>% predict(preprocessed_images)
+    # Add batch to labels and features list
     all_labels[[i]] <- labels
     all_features[[i]] <- features
    }
-   # all_features <- listarrays::bind_on_rows(all_features)
-   # all_labels <- listarrays::bind_on_rows(all_labels)
-   # 
+   # Create list of all features and labels
    list(all_features, all_labels)
 }
 
 c(train_features, train_labels) %<-% get_features_and_labels(conv_base, train_dataset)
+
 c(val_features, val_labels) %<-% get_features_and_labels(conv_base, validation_dataset)
+
 c(test_features, test_labels) %<-% get_features_and_labels(conv_base, test_dataset)
 
-train_features2 <- listarrays::bind_on_rows(train_features) # I THINK THIS WORKS!!!
+# Since *_features are R arrays, we need to convert labels to R arrays from TF Datasets. Inputs into the model have to be the same type.
 
 train_labels2 <- vector("list", length(train_labels))
 for (i in seq_along(train_labels2)) {
@@ -389,13 +395,14 @@ for (i in seq_along(test_labels2)) {
   test_labels2[[i]] <- value
 }
 
-
 val_labels2 <- vector("list", length(val_labels))
 for (i in seq_along(val_labels2)) {
   value <- as.array(val_labels[[i]])
   val_labels2[[i]] <- value
 }
 
+# Combine each list of lists into a single list
+train_features2 <- listarrays::bind_on_rows(train_features) # I THINK THIS WORKS!!!
 train_labels2 <- listarrays::bind_on_rows(train_labels2)
 
 val_features <- listarrays::bind_on_rows(val_features)
@@ -403,10 +410,6 @@ val_labels2 <- listarrays::bind_on_rows(val_labels2)
 
 test_features <- listarrays::bind_on_rows(test_features)
 test_labels2 <- listarrays::bind_on_rows(test_labels2)
-
-```
-
-```{r}
 
 ```
 
@@ -429,18 +432,12 @@ callbacks <- list(
     save_best_only = TRUE,
     monitor = "val_loss"
 ) )
-# history <- model %>% fit(
-#   train_features2, train_labels2,
-#   epochs = 20,
-#   validation_data = list(val_features, val_labels2),
-#   callbacks = callbacks
-# )
 
 history <- model %>% fit(
-  train_features, 
-  train_labels,
+  train_features2, 
+  train_labels2,
   epochs = 20,
-  validation_data = list(val_features,val_labels),
+  validation_data = list(val_features,val_labels2),
   callbacks = callbacks
 )
 
@@ -448,34 +445,4 @@ history <- model %>% fit(
 
 ```{r}
 plot(history)
-```
-
-```{r}
-get_features_and_labels <- function(model, dataset) {
-  n_batches <- length(dataset)
-  all_features <- vector("list", n_batches)
-  all_labels <- vector("list", n_batches)
-  iterator <- as_array_iterator(dataset)
-  for (i in 1:n_batches) {
-    c(images, labels) %<-% iter_next(iterator)
-    preprocessed_images <- imagenet_preprocess_input(model, images)
-    features <- conv_base %>% predict(preprocessed_images)
-    all_labels[[i]] <- labels
-    all_features[[i]] <- features
-  }
-  all_features <- listarrays::bind_on_rows(all_features)
-  all_labels <- listarrays::bind_on_rows(all_labels)
-  list(all_features, all_labels)
-}
-# Combine a list of R arrays along the first axis, the batch dimension.
-c(train_features, train_labels) %<-% get_features_and_labels(conv_base, train_dataset)
-c(val_features, val_labels) %<-% get_features_and_labels(validation_dataset)
-c(test_features, test_labels) %<-% get_features_and_labels(test_dataset)
-```
-
-```{r}
-model <- application_convnext_tiny()
-
-inputsy <- random_normal(c(32, 224, 224, 3))
-processed_inputs <- application_preprocess_inputs(model, inputsy)
 ```
