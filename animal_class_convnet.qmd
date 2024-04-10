@@ -382,6 +382,7 @@ c(val_features, val_labels) %<-% get_features_and_labels(conv_base, validation_d
 c(test_features, test_labels) %<-% get_features_and_labels(conv_base, test_dataset)
 
 # Since *_features are R arrays, we need to convert labels to R arrays from TF Datasets. Inputs into the model have to be the same type.
+# Below is the fast and dirty approach to get it to work. Can easily be a function
 
 train_labels2 <- vector("list", length(train_labels))
 for (i in seq_along(train_labels2)) {
@@ -445,4 +446,85 @@ history <- model %>% fit(
 
 ```{r}
 plot(history)
+```
+
+Using the VGG16 base, we reach a validation accuracy of about 97%, but we're overfitting very early even though we use dropout with a rather large rate.
+
+-   This is due to the fact we can't use data augmentation with this technique, which is important for preventing overfitting with small image datasets.
+
+#### Feature extraction with data augmentation
+
+It will be much more expensive and slower to include data augmentation when extracting features during training, but we will get a higher accuracy.
+
+-   This is done by creating a model that chains the `conv_base` with a new dense classifier, and training it end to end on the inputs.
+
+We will first need to [freeze the convolutional base]{.underline}, which can be done by calling `freeze_weights()`:
+
+```{r}
+conv_base <- application_vgg16(weights = "imagenet",
+                               include_top = FALSE,
+                               freeze_weights(conv_base))
+```
+
+By freezing the weights, we are emptying the list of trainable weights of the layer/model, which can be seen below:
+
+```{r, eval = FALSE}
+unfreeze_weights(conv_base)
+cat("Number of trainable weights before freezing:",
+    length(conv_base$trainable_weights), "\n")
+
+freeze_weights(conv_base)
+cat("Number of trainable weights after freezing:",
+    length(conv_base$trainable_weights), "\n")
+```
+
+Now that the weights are frozen, we can create a new model that changes together:
+
+-   A data augmentation stage
+
+-   Frozen convolutional base
+
+-   A dense classifier
+
+```{r}
+data_augmentation <- keras_model_sequential() %>%
+  layer_random_flip("horizontal") %>%
+  layer_random_rotation(0.1) %>%
+  layer_random_zoom(0.2)
+
+inputs <- layer_input(shape = c(180, 180, 3))
+outputs <- inputs %>%
+  data_augmentation() %>%
+  application_preprocess_inputs(model = conv_base) %>%
+  conv_base() %>%
+  layer_flatten() %>%ß
+  layer_dense(256) %>%
+  layer_dropout(0.5) %>%
+  layer_dense(1, activation = "sigmoid")
+  ß
+
+model <- keras_model(inputs, outputs)
+model %>% compile(loss = "binary_crossentropy",
+                  optimizer = "rmsprop",
+                  metrics = "accuracy")
+```
+
+We can now train the model:
+
+-   Note: This is going to take longer to overfit due to data augmentation so this should really be done using the GPU.
+
+```{r}
+callbacks <- list(
+    callback_model_checkpoint(
+      filepath = "feature_extraction_with_data_augmentation.keras",
+      save_best_only = TRUE,
+      monitor = "val_loss"
+    )
+  )
+
+history <- model %>%
+  fit(train_dataset,
+      epochs = 50,
+      validation_data = validation_dataset,
+      callbacks = callbacks)
 ```
