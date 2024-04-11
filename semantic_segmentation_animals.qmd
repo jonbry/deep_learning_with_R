@@ -8,7 +8,7 @@ editor: visual
 
 In this project, we'll be using semantic segmentation to isolate cats and dogs from their background images.
 
--   The dataset will be the [Oxford-IIIT Pets database](http://www.robots.ox.ac.uk/~vgg/ data/pets/), which contains over 7,390 images of different cats and dogs.
+-   The dataset will be the [Oxford-IIIT Pets database](http://www.robots.ox.ac.uk/~vgg/%20data/pets/), which contains over 7,390 images of different cats and dogs.
 
     -   Each of these images are paired with foreground-background segmentation masks
 
@@ -25,7 +25,7 @@ In this project, we'll be using semantic segmentation to isolate cats and dogs f
 ```{r}
 library(fs)
 library(keras3)
-
+library(tensorflow)
 ```
 
 Wake up `reticulate`:
@@ -52,4 +52,105 @@ for (filename in c("images.tar.gz", "annotations.tar.gz")) {
   untar(data_dir / filename, exdir = data_dir)
 }
 
+```
+
+-   The input pictures are stored as JPG files and the corresponding segmentation masks are stored as PNG files.
+
+Next, we'll create a tibble with columns for the input file paths and the corresponding mask file paths:
+
+```{r}
+input_dir <- data_dir / "images"
+target_dir <- data_dir / "annotations/trimaps/"
+
+image_paths <- tibble::tibble(
+  # Sort list so that the input matches the target
+  input = sort(dir_ls(input_dir, glob = "*.jpg")),
+  target = sort(dir_ls(target_dir, glob = "*.png"))
+)
+```
+
+-   `dir_ls()` is equivalent to the `ls` command and returns file names as a named `fs_path` character vector.
+-   This will keep track of the paths and make sure both the input and target vectors stay in sync.
+
+```{r, eval = FALSE}
+# Check that image_paths looks right
+tibble::glimpse(image_paths)
+```
+
+### View image and its mask
+
+We can view an image and its corresponding mask using the TensorFlow API. The first step will be to create a helper function that will plot a TensorFlow Tensor containing an image using R's `plot()` function:
+
+```{r}
+display_image_tensor <- function(x, ..., max = 255, plot_margins = c(0, 0, 0, 0)){
+  # If there are plot_margins
+  if(!is.null(plot_margins)) {
+    # Default is no margins when plotting images
+    par(mar = plot_margins)
+  }
+  
+  x %>%
+    # Convert TF Tensor to R array
+    as.array() %>%
+    # Remove axes that are size 1
+    drop() %>%
+    # Convert R array into raster object
+    as.raster(max = max) %>%
+    plot(..., interpolate = FALSE)
+}
+```
+
+-   `drop()` example: If x is a grayscale image with one color channel, it would squeeze the tensor shape from (height, width, 1) to (height, width)
+
+-   We use `as.raster(max = max)`, which is 255 because the images are encoded as `uint8`, which only have a range from \[0, 255\]
+
+    -   By setting `max = 255`, R will plot the 255 pixels as white and 0 as black and then interpolate linearly for values between them as shades of grey.
+
+-   `interpolate = FALSE` tells R to draw pixels with sharp edges, no blending or interpolation of colors between pixels.
+
+We can now read an image into a Tensor and view it:
+
+```{r, eval = FALSE}
+# View 10th image
+image_tensor <- image_paths$input[10] %>%
+  tf$io$read_file() %>%
+  tf$io$decode_jpeg()
+
+# Verify that the image is loaded into a Tensor
+str(image_tensor)
+
+# View image in tensor
+display_image_tensor(image_tensor)
+```
+
+To see the target image, the segmentation mask, we can create another helper function:
+
+-   Note: The target images are still `uint8` but they only have values of `(1, 2, 3)`
+
+    -   To plot it, because this is a Tensor being converted to an R array, we need to subtract 1 in order to get it into Python's sill `(0, 1, 2)`
+
+        -   0: Black
+
+        -   1: Gray
+
+        -   2: White
+
+```{r}
+display_target_tensor <- function(target){
+  display_image_tensor(target - 1, max = 2)
+}
+```
+
+To view the mask of the 10th image:
+
+```{r, eval = FALSE}
+target <- image_paths$target[10] |>
+  tf$io$read_file() |>
+  tf$io$decode_png()
+
+# View that it is a tensor
+str(target)
+
+# View image
+display_target_tensor(target)
 ```
