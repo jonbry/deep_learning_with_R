@@ -26,6 +26,7 @@ In this project, we'll be using semantic segmentation to isolate cats and dogs f
 library(fs)
 library(keras3)
 library(tensorflow)
+library(tfdatasets)
 ```
 
 Wake up `reticulate`:
@@ -81,7 +82,7 @@ tibble::glimpse(image_paths)
 
 We can view an image and its corresponding mask using the TensorFlow API. The first step will be to create a helper function that will plot a TensorFlow Tensor containing an image using R's `plot()` function:
 
-```{r}
+```{r, eval = FALSE}
 display_image_tensor <- function(x, ..., max = 255, plot_margins = c(0, 0, 0, 0)){
   # If there are plot_margins
   if(!is.null(plot_margins)) {
@@ -135,7 +136,7 @@ To see the target image, the segmentation mask, we can create another helper fun
 
         -   2: White
 
-```{r}
+```{r, eval = FALSE}
 display_target_tensor <- function(target){
   display_image_tensor(target - 1, max = 2)
 }
@@ -154,3 +155,82 @@ str(target)
 # View image
 display_target_tensor(target)
 ```
+
+### Load files into TF Datasets and split into train/validation
+
+We'll load the input and targets into two TF Datasets and then split them into training and validation sets.
+
+-   Since the dataset is pretty small, this can all be loaded into memory
+
+```{r}
+# Helper to read and resize images using TensorFlow operations
+tf_read_image <-
+  function(path, format = "image", resize = NULL, ...){
+    img <- path |>
+      tf$io$read_file() |>
+      # Look up decode_image(), decode_jpg, or decode_png() from tf$io submodule
+      tf$io[[paste0("decode_", format)]](...)
+    
+    if(!is.null(resize))
+      img <- img |>
+        # Rememver: tf module functions use integers so we need as.integer()
+        tf$image$resize(as.integer(resize))
+    
+    return(img)
+  }
+
+# Image size will be 200 x 200
+img_size <- c(200, 200)
+
+tf_read_image_and_resize <- function(..., resize = img_size){
+  tf_read_image(..., resize = resize)
+}
+```
+
+```{r}
+# Function to create dataset from images and store in RAM 
+make_dataset <- function(paths_df){
+  tensor_slices_dataset(paths_df) |>
+    dataset_map(function(path){
+      image <- path$input |>
+        # Each input image has three channels (RGB)
+        tf_read_image_and_resize("jpeg", channels = 3L)
+      target <- path$target |>
+        # Each target image has a single channel for each pixel
+        tf_read_iamge_and_resize("png", channels = 1L)
+      # Subtract 1 to get labels to (0, 1, 2)...silly Python..
+      target <- target - 1
+      list(image, target)
+    }) |>
+    dataset_cache() |>
+    dataset_shuffle(buffer_size = nrow(paths_df)) |>
+    dataset_batch(32)
+}
+```
+
+-   The R function passed to `dataset_map()` is called with a symbolic tensor, which means it has to return one as well.
+
+    -   `dataset_map()` takes in a single argument, a named list of two scalar string tensors. Each of these contain paths to the input and target images.
+
+-   Caching the dataset store the full dataset in RAM after the first run.
+
+    -   If the dataset is too big, just remove the `dataset_cache()` and the image files will loaded as needed during training.
+
+Now we need to split the dataset into training and validation sets. We'll allocate 1000 samples for validation and the rest will be for training.
+
+```{r}
+# Reserver 1000 samples for validation
+num_val_samples <- 1000
+val_idx <- sample.int(nrow(image_paths), num_val_samples)
+
+# Split into training and validation sets
+val_paths <- image_paths[val_idx, ]
+# Everyting not in the validation set goes into the training set
+train_paths <- image_paths[-val_idx, ]
+
+# Create datasets
+validation_dataset <- make_dataset(val_paths)
+train_dataset <- make_dataset(train_paths)
+```
+
+### Define the model
