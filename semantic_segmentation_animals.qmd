@@ -8,7 +8,7 @@ editor: visual
 
 In this project, we'll be using semantic segmentation to isolate cats and dogs from their background images.
 
--   The dataset will be the [Oxford-IIIT Pets database](http://www.robots.ox.ac.uk/~vgg/%20data/pets/), which contains over 7,390 images of different cats and dogs.
+-   The dataset will be the [Oxford-IIIT Pets database](http://www.robots.ox.ac.uk/~vgg/%20data/pets/), which contains over 7,390 imafgbtg of different cats and dogs.
 
     -   Each of these images are paired with foreground-background segmentation masks
 
@@ -29,10 +29,11 @@ library(tensorflow)
 library(tfdatasets)
 ```
 
-Wake up `reticulate`:
+Wake up `reticulate` and `set.seed()`:
 
 ```{r}
 op_add(1, 1)
+set.seed(123)
 ```
 
 ## Data
@@ -197,7 +198,7 @@ make_dataset <- function(paths_df){
         tf_read_image_and_resize("jpeg", channels = 3L)
       target <- path$target |>
         # Each target image has a single channel for each pixel
-        tf_read_iamge_and_resize("png", channels = 1L)
+        tf_read_image_and_resize("png", channels = 1L)
       # Subtract 1 to get labels to (0, 1, 2)...silly Python..
       target <- target - 1
       list(image, target)
@@ -218,7 +219,7 @@ make_dataset <- function(paths_df){
 
 Now we need to split the dataset into training and validation sets. We'll allocate 1000 samples for validation and the rest will be for training.
 
-```{r}
+```{r}32}
 # Reserver 1000 samples for validation
 num_val_samples <- 1000
 val_idx <- sample.int(nrow(image_paths), num_val_samples)
@@ -234,3 +235,107 @@ train_dataset <- make_dataset(train_paths)
 ```
 
 ### Define the model
+
+```{r}
+get_model <- function(img_size, num_classes){
+  # Local functions to avoid passing the same arguments to each call
+  conv <- function(..., padding = "same", activation = "relu") {
+    layer_conv_2d(..., padding = padding, activation = activation)
+  }
+  conv_transpose <- function(..., padding = "same", activation = "relu") {
+    layer_conv_2d_transpose(..., padding = padding, activation = activation)
+  }
+  
+  input <- layer_input(shape = c(img_size, 3))
+  output <- input |>
+    # Rescale input image to [0, 1] range
+    layer_rescaling(scale = 1/255) |>
+    conv(64, 3, strides = 2) %>%
+    conv(64, 3) %>%
+    conv(128, 3, strides = 2) %>%
+    conv(128, 3) %>%
+    conv(256, 3, strides = 2) %>%
+    conv(256, 3) %>%
+    conv_transpose(256, 3) %>%
+    conv_transpose(256, 3, strides = 2) %>%
+    conv_transpose(128, 3) %>%
+    conv_transpose(128, 3, strides = 2) %>%
+    conv_transpose(64, 3) %>%
+    conv_transpose(64, 3, strides = 2) %>%
+    conv(num_classes, 3, activation = "softmax")
+
+  keras_model(input, output)
+  
+}
+```
+
+-   Use `padding = "same"` to avoid influence of the border padding on the feature map size
+
+-   The model ends with a per-pixel 3-way softmax to classify each output pixel as one of the three categories
+
+```{r}
+model <- get_model(img_size = img_size, num_classes = 3)
+
+model
+```
+
+-   Using strides instead of `MaxPooling2D` layers for downsampling in order to preserve spatial location information in the image
+
+### Compile and fit the model
+
+```{r}
+# Compile the model
+model %>%
+    compile(optimizer = "rmsprop",
+            loss = "sparse_categorical_crossentropy")
+
+# Call back that saves the best model
+callbacks <- list(
+  callback_model_checkpoint("oxford_segmentation.keras",
+                            save_best_only = TRUE))
+# Fit the model
+history <- model %>% fit(
+  train_dataset,
+  epochs = 25,
+  callbacks = callbacks,
+  validation_data = validation_dataset
+)
+```
+
+-   Note: It's possible to get a warning during training to the effect of "`Corrupt JPEG data: premature end of the data segment"`. The image dataset isn't perfect, but the `tf$io` functions can usually recover gracefully.
+
+We can display the training and validation loss of the model:
+
+```{r}
+plot(history)
+```
+
+-   I happen to know that it overfitting starts around 25 epochs, so I only went 25 to save time.
+
+We reload the best performing model (based on validation loss) to see how it would predict a segmentation mask:
+
+```{r}
+# Load best performing model
+model <- load_model_tf("oxford_segmentation.keras")
+
+# Select image 309 to predict its mask
+test_image <- val_paths$input[309] %>%
+  tf_read_image_and_resize("jpeg", channels = 3L)
+
+predicted_mask_probs <-
+  model(test_image[tf$newaxis, , , ])
+
+# predicted_mask is a tesnro with shape=(1, 200, 200), dtype = int64
+predicted_mask <-
+  tf$argmax(predicted_mask_probs, axis = -1L)
+
+predicted_target <- predicted_mask + 1
+
+par(mfrow = c(1, 2))
+display_image_tensor(test_image)
+display_target_tensor(predicted_target)
+```
+
+-   `tf$argmax()` is similar to `which.max()` in R.
+
+    -   A key difference is that `tf$argmax()` returns 0-based values
