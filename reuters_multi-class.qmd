@@ -160,7 +160,7 @@ plot(history)
 
 -   Overfitting starts at epoch 8 so we'll train a model from scratch using 8 epochs and then evaluate the model on the test data
 
-#### Retraining  the model
+#### Retraining the model
 
 ```{r}
 final_model <- keras_model_sequential() %>%

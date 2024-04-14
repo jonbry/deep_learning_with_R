@@ -137,7 +137,7 @@ To see the target image, the segmentation mask, we can create another helper fun
 
         -   2: White
 
-```{r, eval = FALSE}
+```{r}
 display_target_tensor <- function(target){
   display_image_tensor(target - 1, max = 2)
 }
@@ -219,7 +219,7 @@ make_dataset <- function(paths_df){
 
 Now we need to split the dataset into training and validation sets. We'll allocate 1000 samples for validation and the rest will be for training.
 
-```{r}32}
+```{r23}
 # Reserver 1000 samples for validation
 num_val_samples <- 1000
 val_idx <- sample.int(nrow(image_paths), num_val_samples)
@@ -316,10 +316,10 @@ We reload the best performing model (based on validation loss) to see how it wou
 
 ```{r}
 # Load best performing model
-model <- load_model_tf("oxford_segmentation.keras")
+model <- load_model("oxford_segmentation.keras")
 
-# Select image 309 to predict its mask
-test_image <- val_paths$input[309] %>%
+# Select image 102 to predict its mask
+test_image <- val_paths$input[102] %>%
   tf_read_image_and_resize("jpeg", channels = 3L)
 
 predicted_mask_probs <-

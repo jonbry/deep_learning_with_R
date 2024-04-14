@@ -460,7 +460,7 @@ We will first need to [freeze the convolutional base]{.underline}, which can be 
 
 ```{r}
 conv_base <- application_vgg16(weights = "imagenet",
-                               include_top = FALSE,)
+                               include_top = FALSE)
 freeze_weights(conv_base)
 ```
 
