@@ -4,7 +4,7 @@ format: html
 editor: visual
 ---
 
-# Semantic segmentation using images of cats and dogs
+# Semantic segmentation using images of cats and  ogs
 
 In this project, we'll be using semantic segmentation to isolate cats and dogs from their background images.
 
@@ -47,6 +47,7 @@ dir_create(data_dir)
 ```
 
 ```{r, eval = FALSE}
+options(timeout=100)
 data_url <- path("https://thor.robots.ox.ac.uk/~vgg/data/pets")
 for (filename in c("images.tar.gz", "annotations.tar.gz")) {
   download.file(url =  data_url / filename,
@@ -219,7 +220,7 @@ make_dataset <- function(paths_df){
 
 Now we need to split the dataset into training and validation sets. We'll allocate 1000 samples for validation and the rest will be for training.
 
-```{r23}
+```{r}
 # Reserver 1000 samples for validation
 num_val_samples <- 1000
 val_idx <- sample.int(nrow(image_paths), num_val_samples)
@@ -339,3 +340,77 @@ display_target_tensor(predicted_target)
 -   `tf$argmax()` is similar to `which.max()` in R.
 
     -   A key difference is that `tf$argmax()` returns 0-based values
+
+### Mini Xception-like model
+
+For this example, we'll create a smaller version of Xception and apply it to the dogs vs cats classification task that we did previously. In this example, we'll replace the model definition with the following convnet:
+
+```{r}
+data_augmentation <- keras_model_sequential() %>%
+  layer_random_flip("horizontal") %>%
+  layer_random_rotation(0.1) %>%
+  layer_random_zoom(0.2)
+
+inputs <- layer_input(shape = c(180, 180, 3))
+
+x <- inputs %>%
+  data_augmentation() %>%
+  layer_rescaling(scale = 1 / 255)
+
+x <- x %>%
+  layer_conv_2d(32, 5, use_bias = FALSE)
+
+for (size in c(32, 64, 128, 256, 512)) {
+  residual <- x
+  
+  x <- x %>%
+    layer_batch_normalization() %>%
+    layer_activation("relu") %>%
+    
+    layer_separable_conv_2d(size, 3, padding = "same", use_bias = FALSE) %>%
+    layer_batch_normalization() %>%
+    layer_activation("relu") %>%
+
+    layer_separable_conv_2d(size, 3, padding = "same", use_bias = FALSE) %>%
+    layer_max_pooling_2d(pool_size = 3, strides = 2, padding = "same")
+
+  residual <- residual %>%
+    layer_conv_2d(size, 1, strides = 2, padding = "same", use_bias = FALSE)
+  x <- layer_add(list(x, residual))
+}
+
+outputs <- x %>%
+  layer_global_average_pooling_2d() %>%
+  layer_dropout(0.5) %>%
+  layer_dense(1, activation = "sigmoid")
+
+model <- keras_model(inputs, outputs)
+
+train_dataset <- image_dataset_from_directory(
+  "cats_vs_dogs_small/train",
+  image_size = c(180, 180),
+  batch_size = 32
+)
+
+validation_dataset <- image_dataset_from_directory(
+  "cats_vs_dogs_small/validation",
+  image_size = c(180, 180),
+  batch_size = 32
+)
+
+model %>%
+  compile(
+  loss = "binary_crossentropy",
+  optimizer = "rmsprop",
+  metrics = "accuracy"
+)
+
+history <- model %>%
+  fit(train_dataset,
+      epochs = 100,
+      validation_data = validation_dataset)
+```
+
+```{r}
+plot(history)
+```
