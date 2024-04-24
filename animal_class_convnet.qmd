@@ -46,6 +46,12 @@ system('kaggle competitions download -c dogs-vs-cats')
 
 -   Note: I marked dog-vs-cats in gitignore before opening RStudio because it will slow things down
 
+```{r, eval = FALSE}
+# Unzip the dogs-vs-cats file
+zip::unzip('dogs-vs-cats.zip', exdir = "dogs-vs-cats", files = "train.zip") 
+zip::unzip("dogs-vs-cats/train.zip", exdir = "dogs-vs-cats")
+```
+
 #### Create training, validation, and test sets
 
 There are 25K images of dogs and cats (split 50/50), which is more than we actually need. To make this easier, we'll split the images into the following groups (evenly split)
@@ -72,7 +78,7 @@ make_subset <- function(subset_name, start_index, end_index){
     file_name <- glue::glue("{category}.{ start_index:end_index }.jpg")
     dir_create(new_base_dir / subset_name / category)
     file_copy(original_dir / file_name,
-              new_base_dir / subset_name / category /file_name)
+              new_base_dir / subset_name / category / file_name)
   }
 }
 

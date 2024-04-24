@@ -4,7 +4,7 @@ format: html
 editor: visual
 ---
 
-# Semantic segmentation using images of cats and  ogs
+# Semantic segmentation using images of cats and ogs
 
 In this project, we'll be using semantic segmentation to isolate cats and dogs from their background images.
 
@@ -414,3 +414,5 @@ history <- model %>%
 ```{r}
 plot(history)
 ```
+
+The mini-Xception model is able to achieve a test accuracy of 90.8%, whereas the naive model achieved an accuracy of 81.4%
