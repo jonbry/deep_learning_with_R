@@ -7,3 +7,4 @@ dogs-vs-cats
 .DS_Store
 cats_vs_dogs_small
 pets_dataset
+oxford_segmentation.keras
