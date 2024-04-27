@@ -4,7 +4,7 @@ format: html
 editor: visual
 ---
 
-# Semantic segmentation using images of cats and ogs
+# Semantic segmentation using images of cats and dogs
 
 In this project, we'll be using semantic segmentation to isolate cats and dogs from their background images.
 
@@ -416,3 +416,11 @@ plot(history)
 ```
 
 The mini-Xception model is able to achieve a test accuracy of 90.8%, whereas the naive model achieved an accuracy of 81.4%
+
+## Interpreting what convnets learn
+
+Deep learning model are often referred to as "black boxes" because it is hard to extract the learned representations in a form that is interpretable by humans. Convnets, on the other hand, are much easily to visual since they are representations of visual concepts. We'll use three techniques for visualizing the representations:
+
+### Visualizing intermediate activations
+
+Visualizing intermediate activations is done by displaying values that are returned by a models convolution and pooling layers given a specific input. We can visualize the feature maps with 3 dimensions: height, width, and depth (channels). Since each channel encodes independent features, we'll visualize the maps by independently plotting the contents of each channel as a 2D image.
