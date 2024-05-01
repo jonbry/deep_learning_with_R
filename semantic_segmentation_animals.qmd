@@ -29,11 +29,10 @@ library(tensorflow)
 library(tfdatasets)
 ```
 
-Wake up `reticulate` and `set.seed()`:
+Wake up `reticulate`:
 
 ```{r}
 op_add(1, 1)
-set.seed(123)
 ```
 
 ## Data
@@ -566,3 +565,70 @@ for (layer_name in names(layer_outputs)) {
 We can see that the first layer's (`conv2d_9`) captures edges of the image and the activations retain almost the same information as the original picture.
 
 -   The deeper the layer, the more abstract as the activations capture aspects related to the class rather then the visual content.
+
+### Visualizing convnet filters
+
+We'll inspect the filters learned by the convnets with gradient ascent.
+
+Using the filters from the Xception model, we'll:
+
+-   Build a loss function that maximizes the value of a given filter in a given layer
+
+-   Use stochastic gradient descent to adjust the values of the input image as to maximize the activation value.
+
+#### Instantiate the Xception conv_base
+
+```{r}
+model <- application_xception(
+  weights = "imagenet",
+  include_top = FALSE
+)
+```
+
+-   Classification layers for this example are irrelevant, so we don't need to include the top
+
+We're interested in the convolutional layers of the model (`Conv2d` and `SeparatableConv2D`).
+
+-   In order to get their outputs we'll need to know their names.
+
+#### Printing names of all convolutional layers by depth
+
+```{r}
+for (layer in model$layers)
+  # If a layer has a class Cov2D
+  if (any(grepl("Conv2D", class(layer))))
+    print(layer$name)
+```
+
+-   The separable convolutional layers in Xception are structure into blocks.
+
+We can now create a second model, a feature extractor, that returns the output of a specific layer. Since the model uses the Functional API, it's inspect-able, and therefore can query the output and reuse it (no need to copy).
+
+#### Creating a feature extractor model
+
+```{r}
+# Extract a layer based on the layers name (e.g. block_sepconv1)
+layer_name <- "block3_sepconv1"
+layer <- model |> get_layer(name = layer_name)
+feature_extractor <- keras_model(inputs = model$input,
+                                 outputs = model$output)
+
+```
+
+-   This will create a model that returns the output of the target layer based on the input image.
+
+#### Using the feature extractor
+
+```{r}
+activation <- img_tensor |>
+  _[tf$newaxis, , , ] |>
+  application_preprocess_inputs(model = model) |>
+  feature_extractor()
+
+str(activation)
+  
+```
+
+```{r}
+model1
+```
