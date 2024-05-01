@@ -84,7 +84,7 @@ tibble::glimpse(image_paths)
 
 We can view an image and its corresponding mask using the TensorFlow API. The first step will be to create a helper function that will plot a TensorFlow Tensor containing an image using R's `plot()` function:
 
-```{r, eval = FALSE}
+```{r}
 display_image_tensor <- function(x, ..., max = 255, plot_margins = c(0, 0, 0, 0)){
   # If there are plot_margins
   if(!is.null(plot_margins)) {
@@ -424,3 +424,145 @@ Deep learning model are often referred to as "black boxes" because it is hard to
 ### Visualizing intermediate activations
 
 Visualizing intermediate activations is done by displaying values that are returned by a models convolution and pooling layers given a specific input. We can visualize the feature maps with 3 dimensions: height, width, and depth (channels). Since each channel encodes independent features, we'll visualize the maps by independently plotting the contents of each channel as a 2D image.
+
+To start, we will load the convnet model with augmentations:
+
+```{r}
+model <- load_model("convnet_from_scratch_with_augmentation.keras")
+model
+```
+
+Next, we'll use a cat image that is not part of the dataset used to train the network:
+
+```{r}
+# Download test image
+img_path <- get_file(
+  fname = "cat.jpg",
+  origin = "https://img-datasets.s3.amazonaws.com/cat.jpg"
+)
+
+# Read and resize image to float32. Tensor shape is (180, 180, 3)
+img_tensor <- img_path |>
+  tf_read_image(resize = c(180, 180))
+```
+
+We can view the downloaded cat image after being resized:
+
+```{r}
+display_image_tensor(img_tensor)
+```
+
+#### Build the model
+
+To extract the feature maps, we need to create a Keras model that takes in batches of images as inputs and outputs the activations of the convolution and pooling layers.
+
+We will start by creating a dummy convolution and pooling layers to determine what the S3 classname is. This is usually a long string like `keras.layers.convolutional.Conv2D,` but can change between versions of TensorFlow. It's best not to hard code the classnames
+
+```{r}
+conv_layer_s3_classname <-
+  # The 1 returns the primary? class type. The one that takes precedent
+  class(layer_conv_2d(NULL, 1, 1))[1]
+pooling_layer_s3_classname <- 
+  class(layer_max_pooling_2d(NULL))[1]
+
+```
+
+```{r}
+is_conv_layer <- function(x) inherits(x, conv_layer_s3_classname)
+is_pooling_layer <- function(x) inherits(x, pooling_layer_s3_classname)
+
+# Extract outputs from Conv2d and MaxPooling layers and put into named list
+layer_outputs <- list()
+for (layer in model$layers)
+  if (is_conv_layer(layer) || is_pooling_layer(layer))
+    layer_outputs[[layer$name]] <- layer$output
+
+# Create model that returns these outputs given the model inputs
+activation_model <- keras_model(inputs = model$inputs,
+                                outputs = layer_outputs)
+```
+
+Use the model to compute layer activations
+
+```{r}
+activations <- activation_model |>
+  predict(img_tensor[tf$newaxis, , ,])
+```
+
+-   `predict()` returns a list of 9 R arrays, one per layer activation
+
+-   Calling `[tf$newaxis, , , ]` changes `img_tensor`'s shape from (180, 180, 3) to (1, 180, 180, 3).
+
+    -   It adds a batch dimension because the model expects the input to be a batch of images, not a single image.
+
+Since we passed a name list for `outputs` when building the model, we get back a named list of R arrays when calling `predict()` on the model:
+
+```{r}
+str(activations)
+```
+
+Looking closer at the first layer activation:
+
+```{r}
+first_layer_activation <- activations[[ names(layer_outputs[1]) ]]
+dim(first_layer_activation)
+```
+
+-   The first layer activation is a 178 x 178 feature map with 32 channels.
+
+We can plot the firth channel of the activation of the first layer of the original model:
+
+```{r}
+plot_activations <- function(x, ...){
+  # Convert tensors into arrays
+  x <- as.array(x)
+  
+  # All-zero channels (no activations) are plotted as a gray rectangle
+  if(sum(x) == 0)
+    return(plot(as.raster("gray")))
+  
+  # Rotate the image clockwise to make it easier to view
+  rotate <- function(x) t(apply(x, 2, rev))
+  image(rotate(x), 
+        asp = 1,
+        axes = FALSE, 
+        useRaster = TRUE,
+        col = terrain.colors(256), ...) 
+}
+
+# Plot fith channel
+plot_activations(first_layer_activation[, , , 5])
+```
+
+-   This channel appears to encode a diagonal edge detector.
+
+    -   Note: Channels vary as the filters learned by convolution layers aren't deterministic
+
+#### Visualize every change in every intermediate activation
+
+We can plot the complete visualization of all the activations in the network.
+
+-   We'll start by extracting every channel in each of the layer activation and then stacking the results into one big grid where the channels are stacked side by side
+
+```{r}
+# Iterate over the activations (and names of the corresponding layers)
+for (layer_name in names(layer_outputs)) {
+  layer_output <- activations[[layer_name]]
+  
+  # The layer activation has shape (1, height, width, n_features)
+  n_features <- dim(layer_output) |> tail(1)
+  # Prepare to display all of the channels of the activation in one plot
+  par(mfrow = n2mfrow(n_features,
+                      asp = 1.75),
+                      mar = rep(.1, 4),
+                      oma = c(0, 0, 1.5, 0))
+  
+  for (j in 1:n_features)
+    plot_activations(layer_output[, , , j])
+  title(main = layer_name, outer = TRUE)
+}
+```
+
+We can see that the first layer's (`conv2d_9`) captures edges of the image and the activations retain almost the same information as the original picture.
+
+-   The deeper the layer, the more abstract as the activations capture aspects related to the class rather then the visual content.
