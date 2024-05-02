@@ -609,7 +609,7 @@ We can now create a second model, a feature extractor, that returns the output o
 ```{r}
 # Extract a layer based on the layers name (e.g. block3_sepconv1)
 layer_name <- "block3_sepconv1"
-layer <- model |> get_layer(name = "block3_sepconv1")
+layer <- model |> get_layer(name = layer_name)
 feature_extractor <- keras_model(inputs = model$input,
                                  outputs = layer$output)
 
@@ -626,12 +626,82 @@ activation <- img_tensor |>
   feature_extractor()
 
 str(activation)
-  
 ```
+
+The `feature_extractor()` function can be used to create a function that returns a scalar value, which quantifies how much a given input image "activates" a given filter in a layer. This is the "loss function" that will be maximized during the gradient ascent process:
 
 ```{r}
-str(img_tensor)
-layer$name
+# Takes in a image tensor and the index of the filter
+compute_loss <- function(image, filter_index) {
+  activation <- feature_extractor(image)
 
-layer_name
+  filter_index <- as_tensor(filter_index, "int32")
+  # Tell [ that filter_index is zero based with style = "python"
+  filter_activation <- activation[, , , filter_index, stype = "python"]
+  
+  # Return mean of the activation values for the filter
+  mean(filter_activation[, 3:-3, 3:-3])
+}
 ```
+
+-   We cast `filter_index` to a tensor integer because we want to make sure there is a consistent behavior when running the function eager (i.e. not through `tf_function()`)
+-   We avoid border artifacts by only involving the non-border pixels in the loss.
+    -   We discard the first two pixels along the sides of the activation
+
+#### Setup gradient ascent function using GradientTape()
+
+```{r}
+gradient_ascent_step <-
+  function(image, filter_index, learning_rate) {
+    # Watch the image tensor since it's not a TF Variable
+    with(tf$GradientTape() %as% tape, {
+      tape$watch(image)
+      # Comput the loss scalar
+      loss <- compute_loss(image, filter_index)
+    })
+    # Comput the gradients of the loss with respect to the image
+    grads <- tape$gradient(loss, image)
+    # Apply the gradient normalization trick
+    grads <- tf$math$l2_normalize(grads)
+    # Move the image and return the updated image
+    image + (learning_rate + grads)
+  }
+```
+
+-   We need to explicitly watch the image tensor since it's not a TensorFlow Variable. Only TensorFlow Variables are automatically watched by the gradient tape.
+
+-   At the end of the function, we're moving the image a little bit in a direction that activates the target filter more strongly. We then return the updated image so that we can run the step function in a loop.
+
+#### Function to generate filter visualizations
+
+Now that we have all the pieces, we can put them together in a function that takes a layer and filter index as an input and returns a tensor representing the pattern that maximizes the activation of the specified filter.
+
+-   Using the `tf_function()`, we can speed everything up.
+
+```{r}
+c(img_width, img_height) %<-% c(200, 200)
+
+# Speed things up with tf_function
+generate_filter_pattern <- tf_function(function(filter_index) {
+  # Number of gradient ascent steps to apply
+  iterations <- 30
+  # Amplitude of a single step
+  learning_rate <- 10
+  # Initialize image tensor with random values
+  image <- tf$random$uniform(
+    minval = 0.4,
+    maxval = 0.6,
+    shape = shape(1, img_width, img_height, 3)
+  )
+  # Repeatedly update the values of the image tensor
+  for (i in seq(iterations))
+    image <- gradient_ascent_step(image, filter_index, learning_rate)
+  
+  # Drop the batch dim and return the image
+  image[1, , ,]
+})
+```
+
+-   Since the Xception model expects an input value in the \[0,1\] when are centering the range of the random values on 0.5
+
+-   We need to repeatedly update the values of the image tensor to maximize the loss function
