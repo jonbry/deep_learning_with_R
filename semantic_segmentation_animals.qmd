@@ -325,7 +325,7 @@ test_image <- val_paths$input[102] %>%
 predicted_mask_probs <-
   model(test_image[tf$newaxis, , , ])
 
-# predicted_mask is a tesnro with shape=(1, 200, 200), dtype = int64
+# predicted_mask is a tensor with shape=(1, 200, 200), dtype = int64
 predicted_mask <-
   tf$argmax(predicted_mask_probs, axis = -1L)
 
@@ -607,11 +607,11 @@ We can now create a second model, a feature extractor, that returns the output o
 #### Creating a feature extractor model
 
 ```{r}
-# Extract a layer based on the layers name (e.g. block_sepconv1)
+# Extract a layer based on the layers name (e.g. block3_sepconv1)
 layer_name <- "block3_sepconv1"
-layer <- model |> get_layer(name = layer_name)
+layer <- model |> get_layer(name = "block3_sepconv1")
 feature_extractor <- keras_model(inputs = model$input,
-                                 outputs = model$output)
+                                 outputs = layer$output)
 
 ```
 
@@ -630,5 +630,8 @@ str(activation)
 ```
 
 ```{r}
-model1
+str(img_tensor)
+layer$name
+
+layer_name
 ```
