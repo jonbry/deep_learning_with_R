@@ -648,7 +648,7 @@ compute_loss <- function(image, filter_index) {
 -   We avoid border artifacts by only involving the non-border pixels in the loss.
     -   We discard the first two pixels along the sides of the activation
 
-#### Setup gradient ascent function using GradientTape()
+#### Create gradient ascent function using GradientTape()
 
 ```{r}
 gradient_ascent_step <-
@@ -668,7 +668,7 @@ gradient_ascent_step <-
   }
 ```
 
--   We need to explicitly watch the image tensor since it's not a TensorFlow Variable. Only TensorFlow Variables are automatically watched by the gradient tape.
+We need to explicitly watch the image tensor since it's not a TensorFlow Variable. Only TensorFlow Variables are automatically watched by the gradient tape.
 
 -   At the end of the function, we're moving the image a little bit in a direction that activates the target filter more strongly. We then return the updated image so that we can run the step function in a loop.
 
@@ -721,8 +721,34 @@ deprocess_image <- tf_function(function(image, crop = TRUE){
 
 -   `mean()` invokes `tf$math$reduce_mean()`
 
+To generate the image:
+
 ```{r}
 generate_filter_pattern(filter_index = as_tensor(2L)) |>
   deprocess_image() |>
   display_image_tensor()
 ```
+
+-   Note: `filter_index` was cast with `as_tensor()` because a `tf_function()` compiles a separate optimization function for each unique way it is called and a different constant literal counts as a unique call signature.
+
+We can now visualize every filter in a layer, or every filter in every layer for that matter.
+
+#### Generating a grid of all filter responses in a layer
+
+```{r}
+par(mfrow = c(8, 8))
+# Generate and plot visualizations for the first 64 filters in the layer
+for (i in seq(0, 64)) {
+  generate_filter_pattern(filter_index = as_tensor(i)) |>
+    deprocess_image() |>
+    display_image_tensor(plot_margins = rep(.1, 4))
+}
+```
+
+Each layer in a convnet learns a collection of filters such that their inputs can be expressed as a combinations of the filters. The filters in these convnet filter banks get increasingly complex and refined as we go deeper into the model:
+
+-   The filters in the first layers in the model encode simple directional edges and colors.
+
+-   The filters a bit further up in the stack, such as `block4_sepcov1`, encode simple textures made up from combinations of edges and colors
+
+-   The filters in the higher layers begin to resemble textures found in natural images, such as features, eyes, leaves, etc.
