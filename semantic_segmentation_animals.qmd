@@ -752,3 +752,187 @@ Each layer in a convnet learns a collection of filters such that their inputs ca
 -   The filters a bit further up in the stack, such as `block4_sepcov1`, encode simple textures made up from combinations of edges and colors
 
 -   The filters in the higher layers begin to resemble textures found in natural images, such as features, eyes, leaves, etc.
+
+### Visualizing heatmaps of class activations
+
+The class activation map (CAM) visualization consists of producing heatmaps of class activations over input images.
+
+-   CAM is useful in understanding which parts of an image led to the convnet's final classification decision.
+
+-   It's also helpful for debugging the decision process, especially with classification errors (called model interpretability)
+
+A class activation heatmap is a 2D grid of scores associated with a specific output class for each location in an image, which indicates how important each location was in the class that was chosen.
+
+-   With an input image in the dog-vs-cats convnet, the CAM visualization would create a heatmap for the class "cat", which would show the cat-likeliness of different parts of the image.
+
+For this example, we'll use Grad-CAM, which consists of taking the output feature map of a convolution layer and weighting every channel by th egradient of the class with respect to the channel.
+
+-   We can image that we're weighing a spatial map of how intensely the input image activates different channels by how important each channel is with regard to the class.
+
+    -   This results in a spatial map of how intensely the input image activates the class
+
+For this example, we'll use an image of two African elephants, one larger and one smaller.
+
+#### Load the Xception network with pre-trained weigh
+
+```{r}
+# We'll keep the top densly connected classifiers
+model <- application_xception(weights = "imagenet")
+```
+
+#### Pre-process the image for Xception
+
+In order to get the image to work with the Xception model, we want it to be 299 x 299, convert it to a `float32` tensor, and preprocess it.
+
+```{r}
+# Dowanload image and store it in the path img_path
+img_path <- get_file(fname = "elephant.jpg",
+                     origin = "https://img-datasets.s3.amazonaws.com/elephant.jpg")
+
+# Read image as a tensor with size 299 x 299 and type float32 (299, 299, 3)
+img_tensor <- tf_read_image(img_path, resize = c(299, 299))
+# Add dimension to turn the array into a batch of size (1, 299, 299, 3)
+preprocessed_img <- img_tensor[tf$newaxis, , ,] |>
+  application_preprocess_inputs(model = model)
+```
+
+We can now run the pretrained network on the image and decode its prediction vector back to something we can understand:
+
+```{r}
+preds <- predict(model, preprocessed_img)
+str(preds)
+
+imagenet_decode_predictions(preds, top = 3)[[1]]
+```
+
+-   The top class is African elephant, with a 90% probability.
+
+-   Even though it recognizes the animal in the image with a high probability (and is correct), it doesn't know how many elephants are in the image.
+
+We can see the entry in the prediction vector that was maximally activated that corresponded the African elephant class
+
+```{r}
+which.max(preds[1, ])
+```
+
+To visualize which parts of the iamge are most African-elephant-like, we can use the Grad-CAM process.
+
+First, we need to create a model that maps the input image to the activations of the last convolutional layer.
+
+#### Create model that returns last convolutional outpout
+
+```{r}
+last_conv_layer_name <- "block14_sepconv2_act"
+# Name sof the last two layers in the Xception model
+classifier_layer_names <- c("avg_pool", "predictions")
+last_conv_layer <- model |> get_layer(last_conv_layer_name)
+last_conv_layer_model <- keras_model(model$inputs,
+                                     last_conv_layer$output)
+```
+
+Next, we create a model that maps the activations of the last convolutional layer to the final class predictions
+
+#### Reapplying the classifier to the top of the last convolutional output
+
+```{r}
+classifier_input <- layer_input(batch_shape = last_conv_layer$output$shape)
+
+x <- classifier_input
+for (layer_name in classifier_layer_names)
+  x <- get_layer(model, layer_name)(x)
+
+classifier_model <- keras_model(classifier_input, x)
+```
+
+#### Retrieve the gradients of the top predicted class
+
+We now compute the gradient of the top predicted class for the input image with respect to the activations of the last convolution layer.
+
+```{r}
+with (tf$GradientTape() %as% tape, {
+  last_conv_layer_output <- last_conv_layer_model(preprocessed_img)
+  # Explicity watch the activations of the last conv layer
+  tape$watch(last_conv_layer_output)
+  preds <- classifier_model(last_conv_layer_output)
+  top_pred_index <- tf$argmax(preds[1, ])
+  # Retrieve activation channel that corresponds to the top predicted class
+  top_class_channel <- preds[, top_pred_index, style = "python"]
+})
+
+grads <- tape$gradient(top_class_channel, last_conv_layer_output)
+```
+
+-   `grads` is the gradient of the top predicted class with regard to the output feature map of the last convolutional layer.
+
+#### Gradient pooling and channel-importance weighting
+
+Now we can apply pooling and importance weighting to the gradient tensor to generate the heatmap of the class activation.
+
+```{r}
+pooled_grads <- mean(grads, axis = c(1, 2, 3), keepdims = TRUE)
+
+heatmap <-
+  # Multiply each channel in the output of the conv layer by channel importance
+  (last_conv_layer_output * pooled_grads) |>
+  mean(axis = -1) |>
+  # Drop batch dimension so that the output shape is (10, 10)
+  _[1, , ]
+```
+
+-   `pooled_grads` is a vector where each entry is the mean intensity of the gradient for a given channel.
+
+    -   It quantifies the importance of each channel with respect to the the top predicted class.
+
+-   We can take advantage of the Tensor broadcasting rules to avoid using a for loop.
+
+-   The size-1 axes of the `pooled_grads` are automatically broadcast to match the corresponding axis of the `last_conv_layer_output`.
+
+-   `grads` and `last_conv_layer_output` have the same shape (1, 10, 10 ,2048)
+
+-   `pooled_grads` has shape (1, 1, 1, 2048)
+
+-   The channel-wise mean of the resulting feature map is the heatmap of call activation
+
+#### Plotting the results
+
+```{r}
+par(mar = c(0, 0, 0, 0))
+plot_activations(heatmap)
+```
+
+#### Superimposing the heatmap over the original picture
+
+We can now superimpose the activations heatmap over the original image.
+
+-   We can use `cut()` on the heatmap values to a create a sequential color palette, and then convert it to an R `raster` object
+
+-   Note: We need to make the heatmap a bit transparent in order to see the original image underneath.
+
+    -   This is done by including the `alpha = 0.4` argument
+
+```{r}
+# Create semi-transparent color palette for heatmap
+pal <- hcl.colors(256, palette = "Spectral", alpha = 0.4, rev = TRUE)
+# Transform heatmap into an R array
+heatmap <- as.array(heatmap)
+# Cut the heatmap color values to sequential color palette and convert to raster
+heatmap[] <- pal[cut(heatmap, 256)]
+heatmap <- as.raster(heatmap)
+
+# Load the original photo without resizing
+img <- tf_read_image(img_path, resize = NULL)
+display_image_tensor(img)
+rasterImage(heatmap, 0, 0 , ncol(img), nrow(img), interpolate = FALSE)
+```
+
+-   The `rasterImage()` is superimposing the heatmap over the image, with 40% opacity. We pass `ncol(img)` and `nrow(img)` in order for the heatmap (which has fewer pixels), to be drawn on the full size of the original image.
+
+-   Passing `interpolate = FALSE` was used to see where the activation map pixel boundaries are.
+
+Using the heatmap we can answer two important questions:
+
+-   Why did the network think the image contained African elephants?
+
+-   Where is/are the elephants located in the image
+
+Note: The ears of the the baby elephant are strongly activated, which is probably how the network distinguished between different elephant types.
