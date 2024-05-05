@@ -773,14 +773,14 @@ For this example, we'll use Grad-CAM, which consists of taking the output featur
 
 For this example, we'll use an image of two African elephants, one larger and one smaller.
 
-#### Load the Xception network with pre-trained weigh
+#### Load the Xception network with pre-trained weights
 
 ```{r}
 # We'll keep the top densly connected classifiers
 model <- application_xception(weights = "imagenet")
 ```
 
-#### Pre-process the image for Xception
+#### Preprocess the image for Xception
 
 In order to get the image to work with the Xception model, we want it to be 299 x 299, convert it to a `float32` tensor, and preprocess it.
 
@@ -798,11 +798,13 @@ preprocessed_img <- img_tensor[tf$newaxis, , ,] |>
 
 We can now run the pretrained network on the image and decode its prediction vector back to something we can understand:
 
+imagenet_decode_predictions(preds, top=3)\[\[1\]\]
+
 ```{r}
 preds <- predict(model, preprocessed_img)
 str(preds)
 
-imagenet_decode_predictions(preds, top = 3)[[1]]
+application_decode_predictions(model, preds, top = 3)[[1]]
 ```
 
 -   The top class is African elephant, with a 90% probability.
@@ -815,11 +817,11 @@ We can see the entry in the prediction vector that was maximally activated that 
 which.max(preds[1, ])
 ```
 
-To visualize which parts of the iamge are most African-elephant-like, we can use the Grad-CAM process.
+To visualize which parts of the image are most African-elephant-like, we can use the Grad-CAM process.
 
 First, we need to create a model that maps the input image to the activations of the last convolutional layer.
 
-#### Create model that returns last convolutional outpout
+#### Create model that returns last convolutional output
 
 ```{r}
 last_conv_layer_name <- "block14_sepconv2_act"
@@ -900,7 +902,7 @@ par(mar = c(0, 0, 0, 0))
 plot_activations(heatmap)
 ```
 
-#### Superimposing the heatmap over the original picture
+#### Superimposing the heatmap over the original image
 
 We can now superimpose the activations heatmap over the original image.
 
