@@ -1,0 +1,74 @@
+---
+title: "Deep learning for time series"
+format: html
+editor: visual
+---
+
+```{r}
+library(keras3)
+library(here)
+```
+
+## Temperature-forecasting example
+
+The main example we'll use for how to build recurrent neural networks (RNNs), will be predicting the temperature 24 hours in advance, given a time series of hourly measurements of quantities (atmospheric pressure, humidity, etc), recorded from sensors on the roof of a building.
+
+-   The time-series dataset was recorded at a weather station at the Max Planck Institute of Biogeochemistry in Jena, Germany.
+
+-   It has 14 different quantities (temp, pressure, humidity, wind direction, etc) - Quantities were recorded every 10 minutes over several years. -
+
+    -   For this example, we'll just use the 2009-2016 data.
+
+#### Download and uncompress dataset
+
+```{r}
+url <-
+"https://s3.amazonaws.com/keras-datasets/jena_climate_2009_2016.csv.zip"
+download.file(url, destfile = basename(url))
+zip::unzip(zipfile = "jena_climate_2009_2016.csv.zip",
+files = "jena_climate_2009_2016.csv")
+```
+
+We can use `readr` to inspect the dataset:
+
+```{r}
+full_df <- readr::read_csv(here("data_files", "jena_climate_2009_2016.csv"))
+full_df
+```
+
+-   420,451 observations with 15 columns.
+
+    -   Imported `Data Time` as character, which should be fixed.
+
+    -   All other variables are doubles
+
+Convert `Date Time` to proper Central European Time format:
+
+```{r}
+full_df$`Date Time` %<>%
+  as.POSIXct(tx = "Etc/GMT+1", format = "%d. %m. %Y %H:%M:%S")
+```
+
+-   Note: Used back ticks for `Date Time` because it doesn't meet naming convention
+
+-   Note: %\<\>% is the assignment pipe
+
+    -   It requires less typing, turning `x <- x %>% fn()` into `x %<>% fn()`
+
+#### Plot temperature time series
+
+```{r}
+plot(`T (degC)` ~ `Date Time`, data = full_df, pch = 20, cex = 0.3)
+```
+
+-   From a annual perspective, it is clear that the temperature is cyclical.
+
+Narrowing the plot a bit to the first 10 days of the dataset:
+
+```{r}
+plot(`T (degC)` ~ `Date Time`, data = full_df[1:1440, ])
+```
+
+-   We use `[1:1440]` because there are measurements ever 10 minutes for 10 days: $\large 24 \times 6 \times 10 = 1440$
+
+-   We can see some daily periodicity, especially in the last four days.
